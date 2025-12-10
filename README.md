@@ -81,6 +81,21 @@ Leverages specific model targeting for **Gemini 2.5 Flash-Lite**, optimizing for
 
 ---
 
+## ☁️ Deployment (Vercel)
+
+This project is optimized for deployment on Vercel.
+
+1.  **Push to GitHub**: Ensure your code is pushed (you just did this!).
+2.  **Import to Vercel**: Go to [Vercel Dashboard](https://vercel.com/new), import your `AstraNova` repository.
+3.  **Configure Environment Variables**:
+    *   **CRITICAL**: You must add the following Environment Variables in the Vercel Project Settings (Settings > Environment Variables):
+        *   `VITE_FIREBASE_API_KEY`
+        *   `VITE_FIREBASE_AUTH_DOMAIN`
+        *   `VITE_FIREBASE_PROJECT_ID`
+        *   `VITE_GEMINI_API_KEY`
+    *   *Copy the values from your local `.env` file.*
+4.  **Deploy**: Click "Deploy". Vercel will detect Vite and build automatically.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
