@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { CheckCircle, AlertCircle, Loader2, BookOpen, ShieldAlert, Award, Inbox } from "lucide-react";
+import { CheckCircle, AlertCircle, Loader2, BookOpen, ShieldAlert, Award, Inbox, ChevronDown, Activity } from "lucide-react";
 import clsx from "clsx";
 
 interface AgentWorkflowState {
@@ -31,6 +31,37 @@ interface AgentWorkflowState {
     createdAt: string;
 }
 
+const WorkflowStepper = ({ status }: { status: AgentWorkflowState['status'] }) => {
+    const steps = ["Validation", "Enrichment", "QA"];
+    const currentStepIndex =
+        status === "Validation" ? 0 :
+            status === "Enrichment" ? 1 :
+                status === "QA" ? 2 :
+                    (status === "Ready" || status === "Flagged") ? 3 : -1;
+
+    return (
+        <div className="flex items-center gap-2">
+            {steps.map((step, idx) => {
+                const isActive = idx === currentStepIndex;
+                const isCompleted = idx < currentStepIndex;
+
+                return (
+                    <div key={step} className="flex items-center">
+                        <div className={clsx(
+                            "h-2 w-8 rounded-full transition-all duration-500",
+                            isCompleted ? "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]" :
+                                isActive ? "bg-indigo-400 animate-pulse" : "bg-white/10"
+                        )} />
+                    </div>
+                );
+            })}
+            <div className="ml-2 text-[10px] uppercase font-bold tracking-wider text-gray-400">
+                {status === "Processing" ? "Starting..." : currentStepIndex === 3 ? "Complete" : steps[currentStepIndex] || status}
+            </div>
+        </div>
+    );
+};
+
 export function ProviderTable() {
     const [providers, setProviders] = useState<AgentWorkflowState[]>([]);
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -50,41 +81,49 @@ export function ProviderTable() {
         return () => unsubscribe();
     }, []);
 
-    const toggleExpand = (id: string) => {
+    const toggleExpand = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
         setExpandedId(expandedId === id ? null : id);
     };
 
     return (
-        <div className="glass-panel rounded-xl overflow-hidden min-h-[400px]">
+        <div className="glass-panel rounded-2xl overflow-hidden min-h-[400px] border border-white/5 shadow-2xl">
             <table className="w-full text-left text-sm text-gray-400">
-                <thead className="bg-white/5 text-xs uppercase text-gray-300 backdrop-blur-sm border-b border-white/5">
+                <thead className="bg-[#0f172a]/60 backdrop-blur-md text-[10px] uppercase text-gray-400 font-bold tracking-widest border-b border-indigo-500/10">
                     <tr>
-                        <th className="px-6 py-4 font-semibold tracking-wider">NPI</th>
-                        <th className="px-6 py-4 font-semibold tracking-wider">Provider Name</th>
-                        <th className="px-6 py-4 font-semibold tracking-wider">Current Agent</th>
-                        <th className="px-6 py-4 font-semibold tracking-wider">Confidence</th>
-                        <th className="px-6 py-4 font-semibold tracking-wider">Actions</th>
+                        <th className="px-6 py-5">Provider Details</th>
+                        <th className="px-6 py-5">Agent Workflow</th>
+                        <th className="px-6 py-5">Confidence</th>
+                        <th className="px-6 py-5 text-right">Status</th>
+                        <th className="px-6 py-5 text-center">Action</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
                     {isLoading ? (
                         <tr>
-                            <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                                <div className="flex flex-col items-center gap-3">
-                                    <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
-                                    <p>Connecting to Agent Network...</p>
+                            <td colSpan={5} className="px-6 py-20 text-center">
+                                <div className="flex flex-col items-center gap-4">
+                                    <div className="relative">
+                                        <div className="h-10 w-10 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <div className="h-2 w-2 bg-indigo-500 rounded-full animate-pulse" />
+                                        </div>
+                                    </div>
+                                    <p className="text-gray-500 text-xs uppercase tracking-wider animate-pulse">Syncing with Agent Swarm...</p>
                                 </div>
                             </td>
                         </tr>
                     ) : providers.length === 0 ? (
                         <tr>
-                            <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                                <div className="flex flex-col items-center gap-3 opacity-60">
-                                    <div className="h-12 w-12 rounded-full bg-white/5 flex items-center justify-center">
-                                        <Inbox className="h-6 w-6 text-gray-400" />
+                            <td colSpan={5} className="px-6 py-24 text-center">
+                                <div className="flex flex-col items-center gap-4 opacity-50 hover:opacity-100 transition-opacity duration-500">
+                                    <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 flex items-center justify-center border border-white/5 shadow-inner">
+                                        <Inbox className="h-8 w-8 text-gray-400" />
                                     </div>
-                                    <p>No validation jobs active.</p>
-                                    <p className="text-xs">Enter an NPI above to start the agent swarm.</p>
+                                    <div className="space-y-1">
+                                        <p className="text-gray-300 font-medium">No Validations Yet</p>
+                                        <p className="text-xs text-gray-500">Use the Input Panel to start a workflow.</p>
+                                    </div>
                                 </div>
                             </td>
                         </tr>
@@ -94,129 +133,183 @@ export function ProviderTable() {
                                 <tr
                                     key={p.id}
                                     className={clsx(
-                                        "transition-colors cursor-pointer group",
-                                        expandedId === p.id ? "bg-white/10" : "hover:bg-white/5"
+                                        "group transition-all duration-300",
+                                        expandedId === p.id ? "bg-indigo-500/5 shadow-[inset_0_0_20px_rgba(99,102,241,0.05)]" : "hover:bg-white/[0.02]"
                                     )}
-                                    onClick={() => toggleExpand(p.id)}
                                 >
-                                    <td className="px-6 py-4 font-medium text-gray-200 font-mono group-hover:text-white transition-colors">{p.npi}</td>
-                                    <td className="px-6 py-4 text-gray-300 group-hover:text-white transition-colors">{p.name}</td>
-                                    <td className="px-6 py-4">
-                                        <div
-                                            className={clsx(
-                                                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border backdrop-blur-sm shadow-sm",
-                                                {
-                                                    "bg-green-500/10 text-green-300 border-green-500/20": p.status === "Ready",
-                                                    "bg-red-500/10 text-red-300 border-red-500/20": p.status === "Flagged",
-                                                    "bg-indigo-500/10 text-indigo-300 border-indigo-500/20": ["Processing", "Validation", "Enrichment", "QA"].includes(p.status),
-                                                }
-                                            )}
-                                        >
-                                            {p.status === "Ready" && <CheckCircle className="h-3 w-3" />}
-                                            {p.status === "Flagged" && <AlertCircle className="h-3 w-3" />}
-                                            {["Processing", "Validation", "Enrichment", "QA"].includes(p.status) && (
-                                                <Loader2 className="h-3 w-3 animate-spin" />
-                                            )}
-                                            {p.status}
+                                    {/* Name & NPI */}
+                                    <td className="px-6 py-5">
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-gray-200 group-hover:text-white transition-colors text-base">{p.name}</span>
+                                            <span className="text-[10px] font-mono text-indigo-400/80 bg-indigo-500/10 px-1.5 py-0.5 rounded w-fit mt-1 border border-indigo-500/20">
+                                                NPI: {p.npi}
+                                            </span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 text-gray-300">
+
+                                    {/* Visual Stepper */}
+                                    <td className="px-6 py-5">
+                                        <WorkflowStepper status={p.status} />
+                                    </td>
+
+                                    {/* Confidence Bar */}
+                                    <td className="px-6 py-5">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-16 h-1.5 bg-gray-700/50 rounded-full overflow-hidden backdrop-blur-sm">
+                                            <div className="w-24 h-2 bg-gray-800 rounded-full overflow-hidden shadow-inner border border-white/5">
                                                 <div
-                                                    className={clsx("h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(0,0,0,0.5)]", {
-                                                        "bg-gradient-to-r from-green-600 to-green-400": (p.qaReport?.finalConfidence ?? 0) > 80,
-                                                        "bg-gradient-to-r from-yellow-600 to-yellow-400": (p.qaReport?.finalConfidence ?? 0) <= 80,
+                                                    className={clsx("h-full rounded-full transition-all duration-1000 shadow-[0_0_12px_currentColor]", {
+                                                        "bg-emerald-500 text-emerald-500": (p.qaReport?.finalConfidence ?? 0) > 80,
+                                                        "bg-amber-500 text-amber-500": (p.qaReport?.finalConfidence ?? 0) <= 80 && (p.qaReport?.finalConfidence ?? 0) > 40,
+                                                        "bg-red-500 text-red-500": (p.qaReport?.finalConfidence ?? 0) <= 40,
                                                     })}
                                                     style={{ width: `${p.qaReport?.finalConfidence ?? p.validationResult?.confidence ?? 0}%` }}
                                                 />
                                             </div>
-                                            <span className="text-xs font-mono">{p.qaReport?.finalConfidence ?? p.validationResult?.confidence ?? "-"}%</span>
+                                            <span className="text-sm font-mono font-bold text-gray-300">
+                                                {p.qaReport?.finalConfidence ?? p.validationResult?.confidence ?? "-"}%
+                                            </span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 text-indigo-400 font-medium text-xs hover:text-indigo-300 transition-colors">
-                                        {expandedId === p.id ? "Hide Details" : "View Details"}
+
+                                    {/* Badge Status */}
+                                    <td className="px-6 py-5 text-right">
+                                        <div className="flex justify-end">
+                                            <div
+                                                className={clsx(
+                                                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[10px] font-bold uppercase tracking-wider border shadow-lg backdrop-blur-md",
+                                                    {
+                                                        "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-emerald-900/20": p.status === "Ready",
+                                                        "bg-rose-500/10 text-rose-400 border-rose-500/20 shadow-rose-900/20": p.status === "Flagged",
+                                                        "bg-indigo-500/10 text-indigo-300 border-indigo-500/20 shadow-indigo-900/20": ["Processing", "Validation", "Enrichment", "QA"].includes(p.status),
+                                                    }
+                                                )}
+                                            >
+                                                {p.status === "Ready" && <CheckCircle className="h-3 w-3" />}
+                                                {p.status === "Flagged" && <AlertCircle className="h-3 w-3" />}
+                                                {["Processing", "Validation", "Enrichment", "QA"].includes(p.status) && (
+                                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                                )}
+                                                {p.status}
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    {/* Action Button */}
+                                    <td className="px-6 py-5 text-center">
+                                        <button
+                                            onClick={(e) => toggleExpand(p.id, e)}
+                                            className={clsx(
+                                                "h-8 w-8 rounded-lg flex items-center justify-center transition-all duration-300 border",
+                                                expandedId === p.id
+                                                    ? "bg-indigo-500 text-white border-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.5)] rotate-180"
+                                                    : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/10 hover:text-white"
+                                            )}
+                                        >
+                                            <ChevronDown className="h-4 w-4" />
+                                        </button>
                                     </td>
                                 </tr>
+
+                                {/* Expanded Detail View */}
                                 {expandedId === p.id && (
-                                    <tr className="bg-white/5 border-t border-white/5 relative">
-                                        <td colSpan={5} className="px-6 py-6">
-                                            <div className="absolute inset-0 bg-gradient-to-b from-black/20 to-transparent pointer-events-none" />
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative z-10 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                {/* Validation Section */}
-                                                <div className="rounded-xl border border-white/10 bg-black/40 p-5 shadow-inner">
-                                                    <h4 className="mb-3 flex items-center gap-2 font-semibold text-blue-300 border-b border-white/5 pb-2 text-xs uppercase tracking-wider">
-                                                        <ShieldAlert className="h-4 w-4" />
-                                                        Validation Agent
-                                                    </h4>
-                                                    {p.validationResult ? (
-                                                        <div className="space-y-2 text-xs text-gray-300">
-                                                            <div className="flex justify-between items-center">
-                                                                <span className="text-gray-500">Status</span>
-                                                                <span className={clsx("px-2 py-0.5 rounded text-[10px] font-bold border",
-                                                                    p.validationResult.status === 'Verified' ? "bg-green-500/10 text-green-300 border-green-500/20" : "bg-red-500/10 text-red-300 border-red-500/20"
-                                                                )}>
-                                                                    {p.validationResult.status?.toUpperCase()}
-                                                                </span>
-                                                            </div>
-                                                            <div className="pt-2">
-                                                                <span className="text-gray-500 block mb-1">Logic/Reasoning</span>
-                                                                <p className="opacity-80 leading-relaxed bg-white/5 p-2 rounded border border-white/5">{p.validationResult.reason}</p>
-                                                            </div>
-                                                        </div>
-                                                    ) : <span className="text-xs text-gray-600 italic">Waiting for agent to process...</span>}
-                                                </div>
+                                    <tr className="relative">
+                                        <td colSpan={5} className="p-0">
+                                            <div className="bg-[#0f172a]/40 bg-[url('/grid-pattern.svg')] backdrop-blur-md shadow-inner border-y border-indigo-500/20 p-6 animate-in slide-in-from-top-4 duration-300">
 
-                                                {/* Enrichment Section */}
-                                                <div className="rounded-xl border border-white/10 bg-black/40 p-5 shadow-inner">
-                                                    <h4 className="mb-3 flex items-center gap-2 font-semibold text-purple-300 border-b border-white/5 pb-2 text-xs uppercase tracking-wider">
-                                                        <BookOpen className="h-4 w-4" />
-                                                        Enrichment Agent
-                                                    </h4>
-                                                    {p.enrichmentData ? (
-                                                        <div className="space-y-3 text-xs text-gray-300">
-                                                            <div>
-                                                                <span className="text-gray-500 block mb-1">Synthesized Bio</span>
-                                                                <p className="line-clamp-4 italic opacity-80 leading-relaxed bg-white/5 p-2 rounded border border-white/5">{p.enrichmentData.bio}</p>
-                                                            </div>
-                                                            <div>
-                                                                <span className="text-gray-500 block mb-1">Education</span>
-                                                                <p className="font-medium">{p.enrichmentData.education}</p>
-                                                            </div>
-                                                            <div className="flex flex-wrap gap-1.5 pt-1">
-                                                                {p.enrichmentData.languages?.map(l => (
-                                                                    <span key={l} className="px-2 py-0.5 bg-purple-500/10 text-purple-300 border border-purple-500/20 rounded-md text-[10px] shadow-sm">{l}</span>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    ) : <span className="text-xs text-gray-600 italic">Waiting for agent to process...</span>}
-                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-                                                {/* QA Section */}
-                                                <div className="rounded-xl border border-white/10 bg-black/40 p-5 shadow-inner">
-                                                    <h4 className="mb-3 flex items-center gap-2 font-semibold text-green-300 border-b border-white/5 pb-2 text-xs uppercase tracking-wider">
-                                                        <Award className="h-4 w-4" />
-                                                        QA Agent
-                                                    </h4>
-                                                    {p.qaReport ? (
-                                                        <div className="space-y-3 text-xs text-gray-300">
-                                                            <p className="bg-green-500/10 p-3 rounded-lg text-green-100 border border-green-500/20 leading-relaxed shadow-sm">
-                                                                <span className="font-bold block mb-1 text-green-400">Assessment:</span>
-                                                                {p.qaReport.notes}
-                                                            </p>
-                                                            <div className="mt-2 pl-2 border-l-2 border-white/10">
-                                                                <p className="text-[10px] uppercase text-gray-500 mb-1 font-bold">Audit Log</p>
-                                                                <ul className="list-none space-y-1.5">
-                                                                    {p.qaReport.auditLog?.map((log, i) => (
-                                                                        <li key={i} className="flex items-start gap-2 text-gray-400">
-                                                                            <CheckCircle className="h-3 w-3 text-green-500/50 mt-0.5 shrink-0" />
-                                                                            {log}
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
+                                                    {/* Card 1: Validation */}
+                                                    <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/40 p-1 hover:border-blue-500/30 transition-colors">
+                                                        <div className="absolute inset-0 bg-blue-500/5 group-hover:bg-blue-500/10 transition-colors" />
+                                                        <div className="relative p-5">
+                                                            <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-3">
+                                                                <h4 className="flex items-center gap-2 font-bold text-blue-300 text-xs uppercase tracking-wider">
+                                                                    <ShieldAlert className="h-4 w-4" /> Validator
+                                                                </h4>
+                                                                {p.validationResult && (
+                                                                    <span className={clsx("h-1.5 w-1.5 rounded-full shadow-[0_0_8px_currentColor]",
+                                                                        p.validationResult.status === 'Verified' ? "bg-green-400 text-green-400" : "bg-red-400 text-red-400"
+                                                                    )} />
+                                                                )}
                                                             </div>
+                                                            {p.validationResult ? (
+                                                                <div className="space-y-3">
+                                                                    <div className="bg-white/5 rounded-lg p-3 border border-white/5">
+                                                                        <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Status</span>
+                                                                        <span className={clsx("text-sm font-medium",
+                                                                            p.validationResult.status === 'Verified' ? "text-green-300" : "text-red-300"
+                                                                        )}>{p.validationResult.status}</span>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Reasoning</span>
+                                                                        <p className="text-xs text-gray-300 leading-relaxed font-light">{p.validationResult.reason}</p>
+                                                                    </div>
+                                                                </div>
+                                                            ) : <div className="h-20 flex items-center justify-center text-xs text-gray-600 italic">Initiating protocol...</div>}
                                                         </div>
-                                                    ) : <span className="text-xs text-gray-600 italic">Waiting for agent to process...</span>}
+                                                    </div>
+
+                                                    {/* Card 2: Enrichment */}
+                                                    <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/40 p-1 hover:border-purple-500/30 transition-colors">
+                                                        <div className="absolute inset-0 bg-purple-500/5 group-hover:bg-purple-500/10 transition-colors" />
+                                                        <div className="relative p-5">
+                                                            <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-3">
+                                                                <h4 className="flex items-center gap-2 font-bold text-purple-300 text-xs uppercase tracking-wider">
+                                                                    <BookOpen className="h-4 w-4" /> Researcher
+                                                                </h4>
+                                                                <Activity className="h-3 w-3 text-purple-400 animate-pulse" />
+                                                            </div>
+                                                            {p.enrichmentData ? (
+                                                                <div className="space-y-4">
+                                                                    <div className="space-y-1">
+                                                                        <span className="text-[10px] text-gray-500 uppercase font-bold">Education</span>
+                                                                        <p className="text-xs text-white font-medium">{p.enrichmentData.education}</p>
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <span className="text-[10px] text-gray-500 uppercase font-bold">Bio Synthesis</span>
+                                                                        <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-3 bg-white/5 p-2 rounded">{p.enrichmentData.bio}</p>
+                                                                    </div>
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        {p.enrichmentData.specialties?.slice(0, 3).map(s => (
+                                                                            <span key={s} className="px-1.5 py-0.5 bg-purple-500/10 border border-purple-500/20 rounded text-[9px] text-purple-300">{s}</span>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            ) : <div className="h-20 flex items-center justify-center text-xs text-gray-600 italic">Gathering intel...</div>}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Card 3: QA */}
+                                                    <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/40 p-1 hover:border-green-500/30 transition-colors">
+                                                        <div className="absolute inset-0 bg-green-500/5 group-hover:bg-green-500/10 transition-colors" />
+                                                        <div className="relative p-5">
+                                                            <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-3">
+                                                                <h4 className="flex items-center gap-2 font-bold text-green-300 text-xs uppercase tracking-wider">
+                                                                    <Award className="h-4 w-4" /> Auditor
+                                                                </h4>
+                                                                {p.qaReport && (
+                                                                    <span className="text-xs font-mono font-bold text-green-400">{p.qaReport.finalConfidence}%</span>
+                                                                )}
+                                                            </div>
+                                                            {p.qaReport ? (
+                                                                <div className="space-y-3">
+                                                                    <div className="bg-green-950/30 p-2.5 rounded-lg border border-green-500/10">
+                                                                        <span className="text-[10px] text-green-500 uppercase font-bold block mb-1">Final Decision</span>
+                                                                        <p className="text-xs text-green-100">{p.qaReport.notes}</p>
+                                                                    </div>
+                                                                    <div className="pl-2 border-l border-white/10 space-y-1">
+                                                                        {p.qaReport.auditLog?.slice(0, 3).map((log, i) => (
+                                                                            <div key={i} className="flex items-center gap-2 text-[10px] text-gray-400">
+                                                                                <div className="h-1 w-1 bg-gray-500 rounded-full" />
+                                                                                <span className="truncate">{log}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            ) : <div className="h-20 flex items-center justify-center text-xs text-gray-600 italic">Auditing data...</div>}
+                                                        </div>
+                                                    </div>
+
                                                 </div>
                                             </div>
                                         </td>

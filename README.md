@@ -96,6 +96,24 @@ This project is optimized for deployment on Vercel.
     *   *Copy the values from your local `.env` file.*
 4.  **Deploy**: Click "Deploy". Vercel will detect Vite and build automatically.
 
+## 🔥 Deployment (Firebase)
+
+1.  **Configure Project ID**:
+    *   Open `.firebaserc` in the root directory.
+    *   Replace `YOUR_FIREBASE_PROJECT_ID_HERE` with your actual Firebase Project ID (found in `.env` as `VITE_FIREBASE_PROJECT_ID`).
+
+2.  **Install Firebase CLI** (if not installed):
+    ```bash
+    npm install -g firebase-tools
+    ```
+
+3.  **Login & Deploy**:
+    ```bash
+    npm run build
+    firebase login
+    firebase deploy
+    ```
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
