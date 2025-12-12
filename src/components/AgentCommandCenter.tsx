@@ -13,7 +13,7 @@ interface LogEntry {
 export function AgentCommandCenter() {
     const [activeStage, setActiveStage] = useState<"IDLE" | "SCAN" | "SYNTH" | "AUDIT">("IDLE");
     const [logs, setLogs] = useState<LogEntry[]>([]);
-    const bottomRef = useRef<HTMLDivElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [glitch, setGlitch] = useState(false);
 
     useEffect(() => {
@@ -45,7 +45,10 @@ export function AgentCommandCenter() {
     }, []);
 
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        if (scrollContainerRef.current && logs.length > 0) {
+            const { scrollHeight, clientHeight } = scrollContainerRef.current;
+            scrollContainerRef.current.scrollTop = scrollHeight - clientHeight;
+        }
     }, [logs]);
 
     return (
@@ -131,7 +134,7 @@ export function AgentCommandCenter() {
                     </div>
 
                     {/* Scroll Area */}
-                    <div className="flex-1 overflow-y-auto p-6 space-y-3 relative">
+                    <div className="flex-1 overflow-y-auto p-6 space-y-3 relative" ref={scrollContainerRef}>
                         {/* CRT Scanline Overlay */}
                         <div className="absolute inset-0 pointer-events-none bg-[linear_gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear_gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.02),rgba(0,0,255,0.03))] bg-[length:100%_4px,3px_100%] opacity-40 z-20" />
 
@@ -172,7 +175,7 @@ export function AgentCommandCenter() {
                                 </div>
                             </div>
                         ))}
-                        <div ref={bottomRef} />
+
                     </div>
                 </div>
             </div>

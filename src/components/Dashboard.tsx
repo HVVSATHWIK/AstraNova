@@ -1,13 +1,31 @@
+import { useEffect, useState } from "react";
 import { ActionPanel } from "./ActionPanel";
 import { ProviderTable } from "./ProviderTable";
 import { AgentCommandCenter } from "./AgentCommandCenter";
 import { ShieldCheck, Download, Activity, Users } from "lucide-react";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { db, auth } from "../lib/firebase";
+import { signOut } from "firebase/auth";
 
 import { generateDirectoryReport } from "../lib/agentSystem";
 
 export function Dashboard() {
+    const [metrics, setMetrics] = useState({ total: 0, avgConfidence: 0 });
+
+    useEffect(() => {
+        if (!auth.currentUser) return;
+        // Simple listener for metrics (same as table, but we compute aggregates)
+        const q = query(collection(db, "providers"), where("userId", "==", auth.currentUser.uid));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const docs = snapshot.docs.map(d => d.data());
+            const total = docs.length;
+            const totalConf = docs.reduce((acc, curr: any) => acc + (curr.scoring?.identityScore || 0), 0);
+            const avg = total > 0 ? Math.round(totalConf / total) : 0;
+            setMetrics({ total, avgConfidence: avg });
+        });
+        return () => unsubscribe();
+    }, []);
+
     const handleExport = async () => {
         try {
             const querySnapshot = await getDocs(collection(db, "providers"));
@@ -50,6 +68,12 @@ export function Dashboard() {
                         >
                             <Download className="h-4 w-4" />
                             Generate Agent Report
+                        </button>
+                        <button
+                            onClick={() => signOut(auth)}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-400 bg-red-500/5 border border-red-500/10 rounded-lg hover:bg-red-500/10 transition-colors backdrop-blur-sm"
+                        >
+                            Log Out
                         </button>
                     </div>
                 </div>
@@ -98,7 +122,7 @@ export function Dashboard() {
                     <div className="glass-panel rounded-xl p-4 flex items-center justify-between glass-card-hover group">
                         <div>
                             <label className="text-xs text-gray-400 font-medium uppercase tracking-wider">Total Providers</label>
-                            <p className="text-2xl font-bold text-white mt-1 group-hover:text-blue-400 transition-colors">--</p>
+                            <p className="text-2xl font-bold text-white mt-1 group-hover:text-blue-400 transition-colors">{metrics.total}</p>
                             <p className="text-[10px] text-blue-400 mt-1 uppercase tracking-wide">Live Sync Active</p>
                         </div>
                         <div className="h-10 w-10 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400 shadow-inner group-hover:scale-110 transition-transform">
@@ -109,7 +133,7 @@ export function Dashboard() {
                     <div className="glass-panel rounded-xl p-4 flex items-center justify-between glass-card-hover group">
                         <div>
                             <label className="text-xs text-gray-400 font-medium uppercase tracking-wider">Avg Confidence</label>
-                            <p className="text-2xl font-bold text-white mt-1 group-hover:text-green-400 transition-colors">92%</p>
+                            <p className="text-2xl font-bold text-white mt-1 group-hover:text-green-400 transition-colors">{metrics.avgConfidence}%</p>
                             <p className="text-[10px] text-purple-400 mt-1 uppercase tracking-wide">High Accuracy Mode</p>
                         </div>
                         <div className="h-10 w-10 bg-purple-500/20 rounded-full flex items-center justify-center text-purple-400 shadow-inner group-hover:scale-110 transition-transform">

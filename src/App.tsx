@@ -1,17 +1,33 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Dashboard } from "./components/Dashboard";
-import { signInAnonymously } from "firebase/auth";
+import { LoginPage } from "./components/LoginPage";
+import { onAuthStateChanged } from "firebase/auth";
+import type { User } from "firebase/auth";
 import { auth } from "./lib/firebase";
+import { Loader2 } from "lucide-react";
 
 function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    // Automatically sign in anonymously to satisfy potential "request.auth != null" rules
-    signInAnonymously(auth).catch((err) => {
-      console.error("Failed to sign in anonymously:", err);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
     });
+    return () => unsubscribe();
   }, []);
 
-  return <Dashboard />;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#0a0a16] text-white">
+        <Loader2 className="h-10 w-10 animate-spin text-indigo-500 mb-4" />
+        <span className="text-xs uppercase tracking-widest text-gray-500 animate-pulse">Initializing Secure Environment...</span>
+      </div>
+    );
+  }
+
+  return user ? <Dashboard /> : <LoginPage />;
 }
 
 export default App;

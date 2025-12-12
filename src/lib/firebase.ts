@@ -27,29 +27,21 @@ const firebaseConfig = {
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // 2. Initialize Auth with extreme robustness for Incognito/Restricted modes
+// 2. Initialize Auth with safe persistence fallback
 let authInstance;
 try {
-    // Attempt standard persistence chain
-    authInstance = initializeAuth(app, {
-        persistence: [browserLocalPersistence, browserSessionPersistence, inMemoryPersistence]
-    });
-} catch (error: any) {
-    if (error.code === 'auth/already-initialized') {
-        authInstance = getAuth(app);
-    } else {
-        // Fallback to memory
-        try {
-            authInstance = initializeAuth(app, {
-                persistence: inMemoryPersistence
-            });
-        } catch (innerError: any) {
-            if (innerError.code === 'auth/already-initialized') {
-                authInstance = getAuth(app);
-            } else {
-                console.error("Critical Auth Init Error:", innerError);
-                throw innerError;
-            }
-        }
+    // Try to get existing auth instance first to prevent "already initialized" errors during HMR
+    authInstance = getAuth(app);
+} catch (e) {
+    // If not initialized, create it with custom persistence
+    try {
+        authInstance = initializeAuth(app, {
+            persistence: [browserLocalPersistence, browserSessionPersistence, inMemoryPersistence]
+        });
+    } catch (innerError) {
+        // Fallback for strict environments (like some iframe/incognito modes)
+        console.warn("Auth persistence fallback enabled");
+        authInstance = initializeAuth(app, { persistence: inMemoryPersistence });
     }
 }
 export const auth = authInstance;

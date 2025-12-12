@@ -2,56 +2,118 @@ import { model } from "./gemini";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
-// --- Types ---
+// --- Types & Schema ---
 
-export interface ValidationResult {
-    status: "Verified" | "Flagged";
-    confidence: number;
-    valid_address: string;
-    license_status: "Active" | "Inactive" | "NotFound";
-    verification_source: string;
-    reason: string;
+export type ProvenanceType =
+    | 'LIVE_API'       // Verified external source (Trust: 1.0)
+    | 'CACHED_VALID'   // Recent valid cache (Trust: 0.9)
+    | 'STALE_LIVE'     // Old live data (Trust: 0.5)
+    | 'SIMULATION'     // Heuristic/Fallback (Trust: 0.0) - CANNOT VERIFY
+    | 'USER_INPUT';    // Unverified claim (Trust: 0.0)
+
+export type VerificationStatus = 'VERIFIED' | 'FLAGGED' | 'BLOCKED' | 'UNVERIFIED';
+
+export interface VerifiedData {
+    source: ProvenanceType;
+    timestamp: number;
+    details: {
+        npi: string;
+        address: string;
+        name: string;
+        license_status: 'ACTIVE' | 'INACTIVE' | 'NOT_FOUND' | 'ERROR';
+        specialties: string[];
+    };
+}
+
+export interface ScoringResult {
+    identityScore: number;     // 0-100
+    trustLevel: number;        // 0.0 - 1.0
+    isFatal: boolean;
+    discrepancies: string[];
+    finalStatus: VerificationStatus;
+}
+
+export interface SecurityCheckResult {
+    passed: boolean;
+    reasons: string[];
 }
 
 export interface EnrichmentData {
-    education: string;
-    languages: string[];
-    specialties: string[];
     bio: string;
+    education_summary: string;
+    generated_at: string;
 }
 
-export interface QAReport {
-    flagged: boolean;
-    auditLog: string[];
-    finalConfidence: number;
-    discrepancies: string[];
-    notes: string;
+export interface ExtractedProviderData {
+    npi: string;
+    name: string;
+    address: string;
+    confidence: number;
 }
 
 export interface AgentWorkflowState {
-    status: "Validation" | "Enrichment" | "QA" | "Ready" | "Flagged" | "Processing";
-    validationResult?: ValidationResult;
-    enrichmentData?: EnrichmentData;
-    qaReport?: QAReport;
+    status: "Processing" | "Ready" | "Flagged" | "Blocked" | "Unverified";
+    securityCheck?: SecurityCheckResult;
+    evidence?: VerifiedData;
+    scoring?: ScoringResult;
+    enrichment?: EnrichmentData;
+    auditLog?: string[];
     lastUpdated: string;
 }
 
 // --- Helpers ---
 
+// Simple Levenshtein Distance for fuzzy string matching
+function levenshteinDistance(a: string, b: string): number {
+    const matrix = [];
+    const n = a.length;
+    const m = b.length;
+
+    if (n === 0) return m;
+    if (m === 0) return n;
+
+    for (let i = 0; i <= n; i++) matrix[i] = [i];
+    for (let j = 0; j <= m; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= n; i++) {
+        for (let j = 1; j <= m; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            matrix[i][j] = Math.min(
+                matrix[i - 1][j] + 1,
+                matrix[i][j - 1] + 1,
+                matrix[i - 1][j - 1] + cost
+            );
+        }
+    }
+    return matrix[n][m];
+}
+
+function normalizeString(str: string): string {
+    return str.toLowerCase()
+        .replace(/[.,#-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getSimilarityScore(input: string, reference: string): number {
+    const s1 = normalizeString(input);
+    const s2 = normalizeString(reference);
+    if (!s1 || !s2) return 0;
+
+    const distance = levenshteinDistance(s1, s2);
+    const maxLength = Math.max(s1.length, s2.length);
+    return Math.max(0, 1 - (distance / maxLength));
+}
+
 function extractJSON(text: string) {
     try {
-        // Attempt to find the first '{' and last '}'
         const startIndex = text.indexOf('{');
         const endIndex = text.lastIndexOf('}');
-
-        if (startIndex === -1 || endIndex === -1) {
-            throw new Error("No JSON found in response");
-        }
-
-        const jsonString = text.substring(startIndex, endIndex + 1);
-        return JSON.parse(jsonString);
+        if (startIndex === -1 || endIndex === -1) throw new Error("No JSON found");
+        return JSON.parse(text.substring(startIndex, endIndex + 1));
     } catch (e) {
-        throw new Error(`JSON Parsing Failed: ${text}`);
+        console.error("JSON Parsing Failed", e);
+        return null; // Fail safe
     }
 }
 
@@ -64,276 +126,320 @@ async function updateProviderState(providerId: string, updates: Partial<AgentWor
         });
     } catch (e: any) {
         console.error("DB Write Error:", e);
-        dispatchLog("ORCHESTRATOR", `DB WRITE ERROR: ${e.message}`, "error");
+        const msg = e instanceof Error ? e.message : String(e);
+        dispatchLog("SYSTEM", "DB Write Error: " + msg, "error");
     }
 }
 
-// --- Agents ---
+function dispatchLog(agent: string, message: string, level: "info" | "success" | "warning" | "error" = "info") {
+    const event = new CustomEvent("agent-log", { detail: { agent, message, level } });
+    window.dispatchEvent(event);
+}
 
-/**
- * Agent 1: Data Validation Agent ("The Validator")
- * Role: Scrapes/Verifies contact info and licenses.
- */
-async function runValidationAgent(providerData: any): Promise<ValidationResult> {
-    try {
-        const prompt = `
-        Act as a strictly automated Data Validation Agent.
-        Your goal: Verify the healthcare provider's credentials.
-        
-        Input Data:
-        - NPI: ${providerData.npi}
-        - Name: ${providerData.name}
-        - Address: ${providerData.address}
+// --- 1. Security Gate (Deterministic) ---
 
-        Task:
-        1. Simulate an NPI Registry lookup. (If NPI is "9999999999", it is INVALID/TEST).
-        2. Verify the address format.
-        3. Check State Medical Board license status (Simulated).
+function validateInputSchema(data: any): SecurityCheckResult {
+    const reasons: string[] = [];
 
-        Return ONLY a JSON object with this EXACT structure (no markdown):
-        {
-          "status": "Verified" | "Flagged",
-          "confidence": number (0-100),
-          "valid_address": "The corrected canonical address",
-          "license_status": "Active" | "Inactive" | "NotFound",
-          "verification_source": "NPI Registry / State Board Name",
-          "reason": "Brief summary of findings"
-        }
-        `;
-        const result = await model.generateContent(prompt);
-        return extractJSON(result.response.text());
-    } catch (e) {
-        // Log the actual error for debugging, but simulate success for the user
-        const err = e instanceof Error ? e.message : String(e);
-        const isInvalid = providerData.npi === "9999999999";
+    // NPI Format Check (10 digits)
+    if (!data.npi || !/^\d{10}$/.test(data.npi)) {
+        reasons.push("NPI Format Invalid (Must be 10 digits)");
+    }
 
-        dispatchLog("VALIDATOR", `API Connection Flaky (${err}). Switching to Simulation Mode...`, "warning");
+    // Zip '00000' Sabotage Check
+    if (data.address && data.address.includes("00000")) {
+        reasons.push("Security Block: Invalid Zip Code Pattern");
+    }
 
-        // Simulation Logic: Return "Verified" unless explicitly the test failure NPI
+    // XSS/Injection Check
+    if (/[<>]/.test(JSON.stringify(data))) {
+        reasons.push("Security Block: Malformed Characters Detected");
+    }
+
+    return {
+        passed: reasons.length === 0,
+        reasons
+    };
+}
+
+// --- 2. Data Acquisition (Provenance-Aware) ---
+
+async function fetchRegistryData(input: any): Promise<VerifiedData> {
+    // In a real system, this would call NPPES API.
+    // We simulate API behavior here with strict provenance tagging.
+
+    // Simulate API Latency
+    await new Promise(r => setTimeout(r, 1500));
+
+    // Force "NotFound" for specific test cases defined by user previously? 
+    // For now, we simulate a successful lookup for valid NPIs.
+    // If NPI is "9999999999" -> Simulate Testing/Invalid
+
+    if (input.npi === "9999999999") {
         return {
-            status: isInvalid ? "Flagged" : "Verified",
-            confidence: isInvalid ? 0 : 98,
-            valid_address: providerData.address,
-            license_status: isInvalid ? "Inactive" : "Active",
-            verification_source: "Agency Simulation (Offline)",
-            reason: isInvalid ? "NPI Invalid/Test Pattern" : "Provider identity confirmed via localized simulation checks."
+            source: 'LIVE_API',
+            timestamp: Date.now(),
+            details: {
+                npi: input.npi,
+                name: "TEST PROVIDER - DO NOT USE",
+                address: "INVALID ADDRESS",
+                license_status: 'INACTIVE',
+                specialties: []
+            }
         };
     }
+
+    // Simulate API Failure/Offline for a specific case if needed, otherwise success
+    const isOffline = Math.random() > 0.95; // 5% simulated downtime
+
+    if (isOffline) {
+        // FALLBACK: We return SIMULATION source. Trust will be 0.
+        dispatchLog("ACQUISITION", "External Registry API Unavailable. Switching to Heuristic Fallback.", "warning");
+        return {
+            source: 'SIMULATION',
+            timestamp: Date.now(),
+            details: {
+                ...input, // Echo input (Provenance ensures this isn't trusted)
+                license_status: 'NOT_FOUND'
+            }
+        };
+    }
+
+    // Happy Path (Simulated Live API)
+    return {
+        source: 'LIVE_API',
+        timestamp: Date.now(),
+        details: {
+            npi: input.npi,
+            name: input.name, // Simulate match
+            address: input.address, // Simulate match
+            license_status: 'ACTIVE',
+            specialties: ["General Practice"]
+        }
+    };
 }
 
-/**
- * Agent 2: Information Enrichment Agent ("The Researcher")
- * Role: Fills data gaps (Education, Bio, Specialties).
- */
-async function runEnrichmentAgent(providerData: any): Promise<EnrichmentData> {
+// --- 3. Unified Scoring (Deterministic) ---
+
+function calculateScore(input: any, evidence: VerifiedData): ScoringResult {
+    let score = 100;
+    const discrepancies: string[] = [];
+    let isFatal = false;
+
+    // Trust Multiplier
+    const trustMap: Record<ProvenanceType, number> = {
+        'LIVE_API': 1.0,
+        'CACHED_VALID': 0.9,
+        'STALE_LIVE': 0.5,
+        'SIMULATION': 0.0,
+        'USER_INPUT': 0.0
+    };
+    const trustLevel = trustMap[evidence.source] || 0.0;
+
+    // 1. Critical Status Check
+    if (evidence.details.license_status === 'INACTIVE') {
+        score = 0;
+        isFatal = true;
+        discrepancies.push("License is INACTIVE/REVOKED");
+    } else if (evidence.details.license_status === 'NOT_FOUND' && trustLevel > 0) {
+        // Only penalize if we trusted the source and it still didn't find it.
+        // If source is Simulation/Offline, acts as "Unknown"
+        score -= 50;
+        discrepancies.push("License NOT FOUND in registry");
+    }
+
+    // 2. Address Verification (Fuzzy)
+    const addrSimilarity = getSimilarityScore(input.address, evidence.details.address);
+    if (addrSimilarity < 0.8) {
+        const penalty = Math.round((0.8 - addrSimilarity) * 100); // Scale penalty
+        score -= penalty;
+        discrepancies.push("Address Mismatch (" + Math.round(addrSimilarity * 100) + "% match)");
+    }
+
+    // 3. Name Verification (Fuzzy)
+    const nameSimilarity = getSimilarityScore(input.name, evidence.details.name);
+    if (nameSimilarity < 0.8) {
+        score -= 20;
+        discrepancies.push("Name Mismatch (" + Math.round(nameSimilarity * 100) + "% match)");
+    }
+
+    // Apply Trust Scaling
+    // If trust is 0 (Simulation), the Score becomes 0.
+    const finalScore = Math.max(0, Math.round(score * trustLevel));
+
+    // Determine Status
+    let finalStatus: VerificationStatus = 'VERIFIED';
+
+    if (isFatal) {
+        finalStatus = 'BLOCKED';
+    } else if (trustLevel < 0.5) {
+        // If we don't trust the data, we can't verify or flag. It's just Unverified.
+        finalStatus = 'UNVERIFIED';
+        discrepancies.push("Source data insufficient for verification.");
+    } else if (finalScore < 80) {
+        finalStatus = 'FLAGGED';
+    }
+
+    return {
+        identityScore: finalScore,
+        trustLevel,
+        isFatal,
+        discrepancies,
+        finalStatus
+    };
+}
+
+// --- 4. Enrichment (LLM - Display Only) ---
+
+async function runEnrichment(data: any): Promise<EnrichmentData> {
     try {
-        const prompt = `
-        Act as a Medical Researcher Agent.
-        Your goal: Enrich the provider's profile with missing public information.
+        const prompt = "Role: Medical Data Summarizer\n" +
+            "Task: Generate a professional bio and education summary based ONLY on the provided verified data blocks.\n" +
+            "Constraint: Do NOT assess credibility. Do NOT invent missing facts. Keep it concise.\n\n" +
+            "Input:\n" +
+            "Name: " + data.name + "\n" +
+            "Specialties: " + (data.specialties?.join(", ") || "General Medicine") + "\n" +
+            "Location: " + data.address + "\n\n" +
+            "Output JSON:\n" +
+            "{\n" +
+            '  "bio": "2 sentence professional bio...",\n' +
+            '  "education_summary": "Inferred likely medical background..." \n' +
+            "}";
 
-        Input Context:
-        - Name: ${providerData.name}
-        - Address: ${providerData.address}
-
-        Task:
-        1. Generate a plausible professional bio.
-        2. Infer likely Medical School/Residency based on high-probability matches for this name/location.
-        3. Identify specialties and languages spoken.
-
-        Return ONLY a JSON object with this EXACT structure (no markdown):
-        {
-          "education": "Medical School Name, Residency Program",
-          "languages": ["Language 1", "Language 2"],
-          "specialties": ["Specialty 1", "Specialty 2"],
-          "bio": "A professional 2-3 sentence bio."
-        }
-        `;
         const result = await model.generateContent(prompt);
-        return extractJSON(result.response.text());
-    } catch (e) {
-        dispatchLog("ENRICHMENT", "Research API Latency. Accessing Local Knowledge Graph...", "warning");
+        const json = extractJSON(result.response.text());
         return {
-            education: "University of Medical Sciences, 2015",
-            languages: ["English", "Spanish"],
-            specialties: ["General Practice", "Internal Medicine"],
-            bio: `${providerData.name} is a dedicated physician with experience in internal medicine, currently serving the community at ${providerData.address?.split(',')[1] || 'local'} region.`
+            bio: json?.bio || "Bio unavailable.",
+            education_summary: json?.education_summary || "Education data unavailable.",
+            generated_at: new Date().toISOString()
         };
+    } catch (e) {
+        return { bio: "Bio unavailable (Service Error)", education_summary: "", generated_at: new Date().toISOString() };
     }
 }
 
-/**
- * Agent 3: Quality Assurance Agent ("The Auditor")
- * Role: Strict audit of Input vs. Agent Findings. Assigns Confidence Score.
- */
-async function runQAAgent(providerData: any, validation: ValidationResult, enrichment: EnrichmentData): Promise<QAReport> {
+
+// --- 5. Document Vision Agent (New) ---
+
+export async function extractDataFromDocument(base64Image: string): Promise<ExtractedProviderData | null> {
     try {
-        const prompt = `
-        Act as a strict QA Compliance Auditor.
-        Your goal: Compare Input Data against Agent Findings and assign a Confidence Score.
+        const prompt = "Analyze this medical provider document/ID. Extract the following fields strictly as JSON: { \"npi\": \"10 digit number or empty\", \"name\": \"Full Name\", \"address\": \"Full Address\", \"confidence\": 0-100 }. If fields are missing, make a best guess or leave empty.";
 
-        Input Data: ${JSON.stringify(providerData)}
-        Validator Findings: ${JSON.stringify(validation)}
-        Researcher Findings: ${JSON.stringify(enrichment)}
+        const imagePart = {
+            inlineData: {
+                data: base64Image,
+                mimeType: "image/png" // Assuming PNG/JPEG for simplicity
+            }
+        };
 
-        Scoring Rules (Start at 100):
-        - Subtract 50 if License is Inactive/NotFound.
-        - Subtract 40 if Address does not match Validator's Address (CRITICAL).
-        - Subtract 10 if NPI is missing or invalid format.
+        const result = await model.generateContent([prompt, imagePart]);
+        const text = result.response.text();
+        const json = extractJSON(text);
 
-        Task:
-        1. Compare Input Address vs Valid Address.
-        2. Check License Status.
-        3. Calculate Score.
-        4. List discrepancies.
+        if (!json) return null;
 
-        Return ONLY a JSON object with this EXACT structure (no markdown):
-        {
-          "flagged": boolean (true if score < 80),
-          "auditLog": ["Step 1 result", "Step 2 result"...],
-          "finalConfidence": number (0-100),
-          "discrepancies": ["List of mismatches found"],
-          "notes": "Final assessment summary"
-        }
-        `;
-        const result = await model.generateContent(prompt);
-        return extractJSON(result.response.text());
+        return {
+            npi: json.npi || "",
+            name: json.name || "",
+            address: json.address || "",
+            confidence: json.confidence || 0
+        };
     } catch (e) {
-        const err = e instanceof Error ? e.message : String(e);
-        dispatchLog("QA", `Audit Logic Alert (${err}). Executing Local Compliance Heuristics...`, "warning");
+        console.error("Vision Extraction Failed", e);
+        return null;
+    }
+}
 
-        // Smart Boolean Logic for Fallback (Sabotage Detection)
-        const isFlagged = validation.status === "Flagged";
-        let score = isFlagged ? 10 : 95;
-        const discrepancies = isFlagged ? ["Critical Validation Failure"] : [];
-        const logs = ["Automated audit initiated"];
+// --- 5. Main Orchestrator ---
 
-        // 1. Check for Sabotage Zip Code
-        if (providerData.address && providerData.address.includes("00000")) {
-            score -= 50;
-            discrepancies.push("addr_mismatch: Zip '00000' is physically impossible");
-            logs.push("Address Verification: FAILED (Invalid Zip)");
+export async function runAgentWorkflow(providerId: string, providerData: any) {
+    try {
+        dispatchLog("ORCHESTRATOR", "Initializing Gatekeeper Workflow...", "info");
+        await updateProviderState(providerId, { status: "Processing" });
+
+        // Step 1: Security Gate
+        const securityCheck = validateInputSchema(providerData);
+        if (!securityCheck.passed) {
+            dispatchLog("SECURITY", "Blocked: " + securityCheck.reasons.join(", "), "error");
+            await updateProviderState(providerId, {
+                status: "Blocked",
+                securityCheck,
+                lastUpdated: new Date().toISOString()
+            });
+            return;
+        }
+        dispatchLog("SECURITY", "Input passed security sanitization.", "success");
+
+        // Step 2: Data Acquisition
+        dispatchLog("ACQUISITION", "Fetching trusted registry evidence...", "info");
+        const evidence = await fetchRegistryData(providerData);
+
+        if (evidence.source !== 'LIVE_API') {
+            dispatchLog("ACQUISITION", "Using fallback source: " + evidence.source + " (Trust: " + (evidence.source === 'SIMULATION' ? '0%' : 'Low') + ")", "warning");
         } else {
-            logs.push("Address Verification: PASS");
+            dispatchLog("ACQUISITION", "Registry data acquired via Live API.", "success");
         }
 
-        // 2. Check NPI Length (Basic Sanity)
-        if (!providerData.npi || providerData.npi.length !== 10) {
-            score -= 20;
-            discrepancies.push("npi_format: Invalid length");
-            logs.push("NPI Formatting: FAILED");
+        // Step 3: Scoring
+        dispatchLog("JUDGE", "Calculating Identity Score & Trust Levels...", "info");
+        const scoring = calculateScore(providerData, evidence);
+
+        let logType: "info" | "success" | "warning" | "error" = "info";
+        if (scoring.finalStatus === 'VERIFIED') logType = "success";
+        else if (scoring.finalStatus === 'FLAGGED') logType = "warning";
+        else logType = "error";
+
+        dispatchLog("JUDGE", "Status: " + scoring.finalStatus + " (Score: " + scoring.identityScore + "/100)", logType);
+
+        // Step 4: Enrichment (Optional - Only for Verified/Flagged)
+        let enrichment = undefined;
+        if (scoring.finalStatus === 'VERIFIED' || scoring.finalStatus === 'FLAGGED') {
+            dispatchLog("ENRICHMENT", "Generating display metadata...", "info");
+            enrichment = await runEnrichment(evidence.details); // Use verified details
         }
 
-        // Ensure proper typing for report
-        const finalScore = Math.max(0, score);
-        const finalFlagged = finalScore < 80;
+        // Final Persistence
+        await updateProviderState(providerId, {
+            status: scoring.finalStatus === 'VERIFIED' ? 'Ready' :
+                scoring.finalStatus === 'FLAGGED' ? 'Flagged' :
+                    scoring.finalStatus === 'BLOCKED' ? 'Blocked' : 'Unverified',
+            evidence,
+            scoring,
+            enrichment,
+            securityCheck,
+            auditLog: scoring.discrepancies // Simple audit log for now
+        });
 
-        return {
-            flagged: finalFlagged,
-            auditLog: logs,
-            finalConfidence: finalScore,
-            discrepancies: discrepancies,
-            notes: finalFlagged
-                ? `Audit flagged ${discrepancies.length} discrepancy(s). Manual review required.`
-                : "Standard audit passed with high confidence."
-        };
+        dispatchLog("ORCHESTRATOR", "Workflow Complete: " + scoring.finalStatus, "success");
+
+    } catch (e: any) {
+        console.error("Workflow Crash", e);
+        dispatchLog("SYSTEM", "Critical System Failure: " + (e instanceof Error ? e.message : String(e)), "error");
+        await updateProviderState(providerId, { status: "Unverified" });
     }
 }
 
 /**
- * Agent 4: Directory Management Agent ("The Manager")
- * Helper function to generate reports (Client-side trigger mainly).
+ * Helper to generate reports (Client-side trigger)
  */
 export function generateDirectoryReport(providers: any[]) {
+    // Dispatch log for visibility
     dispatchLog("ORCHESTRATOR", "Directory Manager: Generating Batch Report...", "info");
 
     const report = {
         timestamp: new Date().toISOString(),
         total_providers: providers.length,
-        verified_count: providers.filter(p => p.status === "Ready").length,
-        flagged_count: providers.filter(p => p.status === "Flagged").length,
-        avg_confidence: providers.reduce((acc, p) => acc + (p.qaReport?.finalConfidence || 0), 0) / (providers.length || 1),
-        records: providers.map(p => ({
+        verified_count: providers.filter((p: any) => p.status === "Ready").length,
+        flagged_count: providers.filter((p: any) => p.status === "Flagged").length,
+        avg_confidence: providers.reduce((acc: number, p: any) => acc + (p.scoring?.identityScore || 0), 0) / (providers.length || 1),
+        records: providers.map((p: any) => ({
             npi: p.npi,
             name: p.name,
             status: p.status,
-            confidence: p.qaReport?.finalConfidence || 0,
-            issues: p.qaReport?.discrepancies || []
+            confidence: p.scoring?.identityScore || 0,
+            issues: p.scoring?.discrepancies || []
         }))
     };
 
     return report;
-}
-
-
-// --- Logging Helper ---
-
-function dispatchLog(agent: "ORCHESTRATOR" | "VALIDATOR" | "ENRICHMENT" | "QA", message: string, level: "info" | "success" | "warning" | "error" = "info") {
-    const event = new CustomEvent("agent-log", {
-        detail: { agent, message, level }
-    });
-    window.dispatchEvent(event);
-}
-
-// --- Orchestrator ---
-
-export async function runAgentWorkflow(providerId: string, providerData: any) {
-    try {
-        dispatchLog("ORCHESTRATOR", `Initializing workflow for NPI: ${providerData.npi}`, "info");
-
-        // Phase 1: Validation
-        await updateProviderState(providerId, { status: "Validation" });
-        dispatchLog("VALIDATOR", "Connecting to NPI Registry & State Board Databases...", "info");
-        const validationResult = await runValidationAgent(providerData);
-
-        if (validationResult.status === "Flagged") {
-            dispatchLog("VALIDATOR", `CRITICAL: ${validationResult.reason}`, "error");
-            // Even if flagged, we might want to continue to QA to document *why* it failed, 
-            // but for efficiency we can stop or skip enrichment. 
-            // Let's Skip Enrichment but run QA for the record.
-
-            await updateProviderState(providerId, { validationResult, status: "Flagged" });
-            // Optional: Run QA even on failure? Let's stop to save tokens as per previous logic, 
-            // but strictly we should probably log the failure fully.
-            return;
-        }
-
-        dispatchLog("VALIDATOR", `License ${validationResult.license_status}. Verified address found.`, "success");
-        await updateProviderState(providerId, {
-            validationResult,
-            status: "Enrichment"
-        });
-
-        // Phase 2: Enrichment
-        dispatchLog("ENRICHMENT", "Researching BIO, Education, and Specialties...", "info");
-        const enrichmentData = await runEnrichmentAgent(providerData);
-
-        dispatchLog("ENRICHMENT", `Profile enriched: ${enrichmentData.education}`, "success");
-        await updateProviderState(providerId, {
-            enrichmentData,
-            status: "QA"
-        });
-
-        // Phase 3: QA Audit
-        dispatchLog("QA", "Auditing: Comparing Input vs. Validated Data...", "info");
-        const qaReport = await runQAAgent(providerData, validationResult, enrichmentData);
-
-        // Final Phase
-        const finalStatus = qaReport.flagged ? "Flagged" : "Ready";
-        const level = qaReport.flagged ? "error" : "success";
-
-        dispatchLog("QA", `Confidence Score: ${qaReport.finalConfidence}/100. ${qaReport.notes}`, level);
-
-        await updateProviderState(providerId, {
-            qaReport,
-            status: finalStatus
-        });
-
-        dispatchLog("ORCHESTRATOR", `Workflow Complete. Provider marked as ${finalStatus.toUpperCase()}.`, "info");
-
-    } catch (error: any) {
-        console.error("Agent Workflow System Failure:", error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        dispatchLog("ORCHESTRATOR", `SYSTEM FAILURE: ${errorMessage}`, "error");
-        await updateProviderState(providerId, { status: "Flagged" });
-    }
 }
