@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { collection, addDoc } from "firebase/firestore";
 import { db, auth } from "../lib/firebase";
 import { runAgentWorkflow, extractDataFromDocument } from "../lib/agentSystem";
-import { UserPlus, Sparkles, Database, FileText, Upload, Scan } from "lucide-react";
+import { UserPlus, Sparkles, Database, FileText, Upload, Scan, PlayCircle, StopCircle } from "lucide-react";
+import { SYNTHETIC_BATCH } from "../lib/syntheticData";
 import clsx from "clsx";
 
 const DEMO_PROVIDERS = [
@@ -24,7 +25,7 @@ const DEMO_PROVIDERS = [
 ];
 
 export function ActionPanel() {
-    const [activeTab, setActiveTab] = useState<'form' | 'upload'>('form');
+    const [activeTab, setActiveTab] = useState<'form' | 'upload' | 'batch'>('form');
     const [npi, setNpi] = useState("");
     const [name, setName] = useState("");
     const [address, setAddress] = useState("");
@@ -32,11 +33,47 @@ export function ActionPanel() {
     const [scanStatus, setScanStatus] = useState("");
     const [dragActive, setDragActive] = useState(false);
 
+    // Batch State
+    const [isBatchRunning, setIsBatchRunning] = useState(false);
+    const [batchProgress, setBatchProgress] = useState(0);
+
+    const stopBatchRef = useRef(false); // Ref to properly handle stopping within loop
+
     const fillDemoData = () => {
         const random = DEMO_PROVIDERS[Math.floor(Math.random() * DEMO_PROVIDERS.length)];
         setNpi(random.npi);
         setName(random.name);
         setAddress(random.address);
+    };
+
+    const handleBatchRun = async () => {
+        if (isBatchRunning) {
+            // Stop
+            stopBatchRef.current = true;
+            setIsBatchRunning(false);
+            return;
+        }
+
+        setIsBatchRunning(true);
+        stopBatchRef.current = false;
+        setActiveTab('batch'); // New tab or just visual mode? Let's keep it simple.
+
+        for (let i = 0; i < SYNTHETIC_BATCH.length; i++) {
+            if (stopBatchRef.current) break;
+
+            const p = SYNTHETIC_BATCH[i];
+            setBatchProgress(Math.round(((i + 1) / SYNTHETIC_BATCH.length) * 100));
+
+            // Call process submission without await to fire-and-forget (higher throughput visual)
+            // OR await for paced logic. Await is better for demo control.
+            await processSubmission(p.npi, p.name, p.address);
+
+            // Artificial delay for visual pacing (200ms)
+            await new Promise(r => setTimeout(r, 200));
+        }
+
+        setIsBatchRunning(false);
+        setBatchProgress(0);
     };
 
     // New: Handle Document Upload
@@ -130,7 +167,7 @@ export function ActionPanel() {
                         activeTab === 'form' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white"
                     )}
                 >
-                    <FileText className="h-3 w-3" /> Manual Entry
+                    <FileText className="h-3 w-3" /> Manual
                 </button>
                 <button
                     onClick={() => setActiveTab('upload')}
@@ -138,9 +175,25 @@ export function ActionPanel() {
                         activeTab === 'upload' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white"
                     )}
                 >
-                    <Scan className="h-3 w-3" /> Smart Scan
+                    <Scan className="h-3 w-3" /> Scan
+                </button>
+                <button
+                    onClick={handleBatchRun}
+                    className={clsx("flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-2",
+                        isBatchRunning ? "bg-red-500/80 text-white animate-pulse" : "text-indigo-300 hover:text-white hover:bg-indigo-500/20"
+                    )}
+                >
+                    {isBatchRunning ? <StopCircle className="h-3 w-3" /> : <PlayCircle className="h-3 w-3" />}
+                    {isBatchRunning ? "Stop Batch" : "Run Batch"}
                 </button>
             </div>
+
+            {/* Batch Progress Bar Overlay */}
+            {isBatchRunning && (
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gray-800 z-50">
+                    <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${batchProgress}%` }} />
+                </div>
+            )}
 
             {/* Manual Form */}
             {activeTab === 'form' && (

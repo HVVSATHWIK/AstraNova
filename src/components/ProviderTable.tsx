@@ -243,9 +243,25 @@ export function ProviderTable() {
                                                                 <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-3">
                                                                     <h4 className="flex items-center gap-2 font-bold text-blue-300 text-xs uppercase tracking-wider">
                                                                         <ShieldAlert className="h-4 w-4 shrink-0" /> Gatekeeper
+                                                                        {/* Source Trust Badge */}
+                                                                        {p.evidence?.source && (
+                                                                            <span className={clsx(
+                                                                                "ml-auto text-[10px] px-2 py-0.5 rounded-full border shadow-sm font-bold flex items-center gap-1",
+                                                                                p.evidence.source === 'LIVE_API' ? "bg-green-500/10 text-green-400 border-green-500/20" :
+                                                                                    p.evidence.source === 'SIMULATION' ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                                                                                        "bg-gray-500/10 text-gray-400 border-white/10"
+                                                                            )}>
+                                                                                <span className={clsx("h-1.5 w-1.5 rounded-full",
+                                                                                    p.evidence.source === 'LIVE_API' ? "bg-green-400" :
+                                                                                        p.evidence.source === 'SIMULATION' ? "bg-amber-400" : "bg-gray-400"
+                                                                                )} />
+                                                                                {p.evidence.source === 'LIVE_API' ? "HIGH TRUST" :
+                                                                                    p.evidence.source === 'SIMULATION' ? "MED TRUST" : "LOW TRUST"}
+                                                                            </span>
+                                                                        )}
                                                                     </h4>
                                                                     {p.securityCheck && (
-                                                                        <span className={clsx("h-1.5 w-1.5 rounded-full shadow-[0_0_8px_currentColor]",
+                                                                        <span className={clsx("hidden h-1.5 w-1.5 rounded-full shadow-[0_0_8px_currentColor]", // Hidden because we moved the dot inside badge
                                                                             p.securityCheck.passed ? "bg-green-400 text-green-400" : "bg-red-400 text-red-400"
                                                                         )} />
                                                                     )}

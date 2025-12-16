@@ -11,7 +11,7 @@ interface LogEntry {
 }
 
 export function AgentCommandCenter() {
-    const [activeStage, setActiveStage] = useState<"IDLE" | "SCAN" | "SYNTH" | "AUDIT">("IDLE");
+    const [activeStage, setActiveStage] = useState<"IDLE" | "SCAN" | "SYNTH" | "AUDIT" | "ALERT">("IDLE");
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [glitch, setGlitch] = useState(false);
@@ -26,7 +26,9 @@ export function AgentCommandCenter() {
             setTimeout(() => setGlitch(false), 200);
 
             // Update Visual Stage
-            if (agent === "VALIDATOR") setActiveStage("SCAN");
+            if (customEvent.detail.message.includes("Security") || customEvent.detail.level === "error") {
+                setActiveStage("ALERT");
+            } else if (agent === "VALIDATOR") setActiveStage("SCAN");
             else if (agent === "ENRICHMENT") setActiveStage("SYNTH");
             else if (agent === "QA") setActiveStage("AUDIT");
             else if (agent === "ORCHESTRATOR" && (customEvent.detail.message.includes("finished") || customEvent.detail.message.includes("Complete"))) setActiveStage("IDLE");
@@ -63,9 +65,10 @@ export function AgentCommandCenter() {
                     <div className={clsx(
                         "absolute inset-0 opacity-20 transition-all duration-1000",
                         activeStage === "IDLE" ? "bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900 via-transparent to-transparent" :
-                            activeStage === "SCAN" ? "bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-900 via-transparent to-transparent" :
-                                activeStage === "SYNTH" ? "bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-purple-900 via-transparent to-transparent" :
-                                    "bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-emerald-900 via-transparent to-transparent"
+                            activeStage === "ALERT" ? "bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-red-600 via-transparent to-transparent animate-pulse" :
+                                activeStage === "SCAN" ? "bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-900 via-transparent to-transparent" :
+                                    activeStage === "SYNTH" ? "bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-purple-900 via-transparent to-transparent" :
+                                        "bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-emerald-900 via-transparent to-transparent"
                     )} />
 
                     {/* The 3D Core */}
@@ -73,9 +76,10 @@ export function AgentCommandCenter() {
                         <div className={clsx(
                             "w-40 h-40 rounded-full border-2 flex items-center justify-center relative transition-all duration-700",
                             activeStage === "IDLE" ? "border-indigo-500/20 shadow-[0_0_50px_rgba(99,102,241,0.2)]" :
-                                activeStage === "SCAN" ? "border-blue-500/50 shadow-[0_0_50px_rgba(59,130,246,0.4)] animate-pulse" :
-                                    activeStage === "SYNTH" ? "border-purple-500/50 shadow-[0_0_50px_rgba(168,85,247,0.4)] animate-pulse" :
-                                        "border-emerald-500/50 shadow-[0_0_50px_rgba(16,185,129,0.4)]"
+                                activeStage === "ALERT" ? "border-red-500 shadow-[0_0_80px_rgba(239,68,68,0.6)] animate-pulse" :
+                                    activeStage === "SCAN" ? "border-blue-500/50 shadow-[0_0_50px_rgba(59,130,246,0.4)] animate-pulse" :
+                                        activeStage === "SYNTH" ? "border-purple-500/50 shadow-[0_0_50px_rgba(168,85,247,0.4)] animate-pulse" :
+                                            "border-emerald-500/50 shadow-[0_0_50px_rgba(16,185,129,0.4)]"
                         )}>
                             {/* Spinning Rings */}
                             <div className={clsx(
@@ -90,6 +94,7 @@ export function AgentCommandCenter() {
                             {/* Center Icon */}
                             <div className={clsx("transition-transform duration-500", glitch ? "scale-110" : "scale-100")}>
                                 {activeStage === "IDLE" && <Cpu className="w-16 h-16 text-indigo-400" />}
+                                {activeStage === "ALERT" && <ShieldAlert className="w-20 h-20 text-red-500 animate-pulse" />}
                                 {activeStage === "SCAN" && <ShieldAlert className="w-16 h-16 text-blue-400" />}
                                 {activeStage === "SYNTH" && <BookOpen className="w-16 h-16 text-purple-400" />}
                                 {activeStage === "AUDIT" && <Award className="w-16 h-16 text-emerald-400" />}
