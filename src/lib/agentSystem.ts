@@ -175,6 +175,21 @@ async function fetchRegistryData(input: any): Promise<VerifiedData> {
     // For now, we simulate a successful lookup for valid NPIs.
     // If NPI is "9999999999" -> Simulate Testing/Invalid
 
+    // Force "SIMULATION" (Med Trust) for testing
+    if (input.npi === "8888888888") {
+        return {
+            source: 'SIMULATION',
+            timestamp: Date.now(),
+            details: {
+                npi: input.npi,
+                name: "Dr. Med Trust Test",
+                address: "123 Simulation Lane, Test City",
+                license_status: 'ACTIVE',
+                specialties: ["Internal Testing"]
+            }
+        };
+    }
+
     if (input.npi === "9999999999") {
         return {
             source: 'LIVE_API',
@@ -231,7 +246,7 @@ function calculateScore(input: any, evidence: VerifiedData): ScoringResult {
         'LIVE_API': 1.0,
         'CACHED_VALID': 0.9,
         'STALE_LIVE': 0.5,
-        'SIMULATION': 0.0,
+        'SIMULATION': 0.5, // Med Trust = 50% confidence
         'USER_INPUT': 0.0
     };
     const trustLevel = trustMap[evidence.source] || 0.0;
@@ -392,7 +407,7 @@ export async function runAgentWorkflow(providerId: string, providerData: any) {
         dispatchLog("JUDGE", "Status: " + scoring.finalStatus + " (Score: " + scoring.identityScore + "/100)", logType);
 
         // Step 4: Enrichment (Optional - Only for Verified/Flagged)
-        let enrichment = undefined;
+        let enrichment: any = null;
         if (scoring.finalStatus === 'VERIFIED' || scoring.finalStatus === 'FLAGGED') {
             dispatchLog("ENRICHMENT", "Generating display metadata...", "info");
             enrichment = await runEnrichment(evidence.details); // Use verified details
