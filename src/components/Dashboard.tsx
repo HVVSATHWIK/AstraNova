@@ -6,7 +6,7 @@ import { collection, getDocs, onSnapshot, query, where } from "firebase/firestor
 import { db, auth } from "../lib/firebase";
 import { signOut } from "firebase/auth";
 import clsx from "clsx";
-import { ShieldCheck, Download, Activity, Users, DollarSign, Clock, FileSpreadsheet, Printer, X, Briefcase, LayoutDashboard } from "lucide-react";
+import { ShieldCheck, Activity, Users, DollarSign, Clock, FileSpreadsheet, Printer, X, Briefcase, LayoutDashboard } from "lucide-react";
 
 import { generateDirectoryReport } from "../lib/agentSystem";
 
