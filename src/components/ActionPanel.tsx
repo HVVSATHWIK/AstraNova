@@ -5,6 +5,116 @@ import { runAgentWorkflow, extractDataFromDocument } from "../lib/agentSystem";
 import { UserPlus, Sparkles, Database, FileText, Upload, Scan } from "lucide-react";
 import clsx from "clsx";
 
+type CsvProviderRow = {
+    npi: string;
+    name: string;
+    address: string;
+};
+
+function parseCsvToRows(csvText: string): { headers: string[]; rows: Record<string, string>[] } {
+    const text = (csvText || "").replace(/^\uFEFF/, "");
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        const next = text[i + 1];
+
+        if (inQuotes) {
+            if (char === '"' && next === '"') {
+                field += '"';
+                i++;
+                continue;
+            }
+            if (char === '"') {
+                inQuotes = false;
+                continue;
+            }
+            field += char;
+            continue;
+        }
+
+        if (char === '"') {
+            inQuotes = true;
+            continue;
+        }
+
+        if (char === ',') {
+            row.push(field);
+            field = "";
+            continue;
+        }
+
+        if (char === '\n') {
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = "";
+            continue;
+        }
+
+        if (char === '\r') {
+            continue;
+        }
+
+        field += char;
+    }
+
+    row.push(field);
+    rows.push(row);
+
+    const nonEmpty = rows.filter(r => r.some(c => (c || "").trim().length > 0));
+    if (nonEmpty.length === 0) return { headers: [], rows: [] };
+
+    const headers = nonEmpty[0].map(h => (h || "").trim());
+    const dataRows = nonEmpty.slice(1);
+    const objects: Record<string, string>[] = dataRows.map(r => {
+        const obj: Record<string, string> = {};
+        for (let i = 0; i < headers.length; i++) {
+            const key = headers[i];
+            if (!key) continue;
+            obj[key] = (r[i] ?? "").trim();
+        }
+        return obj;
+    });
+
+    return { headers, rows: objects };
+}
+
+function getFirstValue(row: Record<string, string>, keys: string[]): string {
+    const lowered: Record<string, string> = {};
+    for (const [k, v] of Object.entries(row)) lowered[k.toLowerCase().trim()] = v;
+    for (const key of keys) {
+        const value = lowered[key.toLowerCase().trim()];
+        if (value && value.trim()) return value.trim();
+    }
+    return "";
+}
+
+function buildAddressFromColumns(row: Record<string, string>): string {
+    const address = getFirstValue(row, ["address", "full_address", "full address"]);
+    if (address) return address;
+
+    const line1 = getFirstValue(row, ["address_line1", "address line1", "address1", "address 1"]);
+    const line2 = getFirstValue(row, ["address_line2", "address line2", "address2", "address 2"]);
+    const city = getFirstValue(row, ["city"]);
+    const state = getFirstValue(row, ["state_or_region", "state", "region"]);
+    const postal = getFirstValue(row, ["postal_code", "postal code", "postcode", "zip"]);
+    const country = getFirstValue(row, ["country"]);
+
+    const parts = [line1, line2, city, state, postal, country].filter(Boolean);
+    return parts.join(", ").trim();
+}
+
+function rowToProvider(row: Record<string, string>): CsvProviderRow {
+    const npi = getFirstValue(row, ["npi", "npi_number", "npi number", "npi_no", "npi no"]);
+    const name = getFirstValue(row, ["provider_name", "provider name", "name"]);
+    const address = buildAddressFromColumns(row);
+    return { npi, name, address };
+}
+
 const DEMO_PROVIDERS = [
     {
         npi: "1487000001",
@@ -32,6 +142,10 @@ export function ActionPanel() {
     const [scanStatus, setScanStatus] = useState("");
     const [dragActive, setDragActive] = useState(false);
 
+    const [csvProviders, setCsvProviders] = useState<CsvProviderRow[]>([]);
+    const [csvError, setCsvError] = useState<string>("");
+    const [csvSelectedIndex, setCsvSelectedIndex] = useState<number>(-1);
+
     const fillDemoData = () => {
         const random = DEMO_PROVIDERS[Math.floor(Math.random() * DEMO_PROVIDERS.length)];
         setNpi(random.npi);
@@ -43,6 +157,12 @@ export function ActionPanel() {
     const handleFileUpload = async (files: FileList | null) => {
         if (!files || files.length === 0) return;
         const file = files[0];
+
+        const isCsv = file.type === "text/csv" || /\.csv$/i.test(file.name);
+        if (isCsv) {
+            alert("This upload expects an image for Scan. To import a CSV dataset, use Manual → Import CSV.");
+            return;
+        }
 
         try {
             setLoading(true);
@@ -78,7 +198,7 @@ export function ActionPanel() {
                     setScanStatus("Extraction Complete. Validating...");
                     await processSubmission(extracted.npi, extracted.name, extracted.address);
                 } else {
-                    alert("Could not extract data from document.");
+                    alert("Could not extract data from the uploaded image. Try a clearer photo (include the full address block), or use Manual entry.");
                     setScanStatus("");
                     setLoading(false);
                 }
@@ -87,6 +207,40 @@ export function ActionPanel() {
             console.error("Upload failed", e);
             setScanStatus("Error scanning document.");
             setLoading(false);
+        }
+    };
+
+    const handleCsvImport = async (files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        const file = files[0];
+        setCsvError("");
+        setCsvSelectedIndex(-1);
+
+        try {
+            const text = await file.text();
+            const { headers, rows } = parseCsvToRows(text);
+            if (headers.length === 0 || rows.length === 0) {
+                setCsvProviders([]);
+                setCsvError("CSV looks empty or missing a header row.");
+                return;
+            }
+
+            const providers = rows
+                .slice(0, 500)
+                .map(rowToProvider)
+                .filter(p => p.name || p.npi || p.address);
+
+            if (providers.length === 0) {
+                setCsvProviders([]);
+                setCsvError("No usable rows found. Expected columns like: npi, provider_name/name, address (or address_line1/city/state/postal_code/country). ");
+                return;
+            }
+
+            setCsvProviders(providers);
+        } catch (e) {
+            console.error("CSV import failed", e);
+            setCsvProviders([]);
+            setCsvError("Could not read that CSV file.");
         }
     };
 
@@ -162,7 +316,16 @@ export function ActionPanel() {
             {/* Manual Form */}
             {activeTab === 'form' && (
                 <form onSubmit={handleSubmit} className="space-y-4 relative z-10 animate-in fade-in slide-in-from-right-4 duration-300">
-                    <div className="flex justify-end">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                            <label className="text-[10px] text-gray-400">Import CSV (prefills form)</label>
+                            <input
+                                type="file"
+                                accept=".csv,text/csv"
+                                onChange={(e) => handleCsvImport(e.target.files)}
+                                className="block w-[200px] text-[10px] text-gray-400 file:mr-2 file:rounded-md file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-[10px] file:font-semibold file:text-gray-200 hover:file:bg-white/20"
+                            />
+                        </div>
                         <button
                             onClick={fillDemoData}
                             type="button"
@@ -172,6 +335,46 @@ export function ActionPanel() {
                             Demo Fill
                         </button>
                     </div>
+
+                    {csvProviders.length > 0 && (
+                        <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2">
+                                    <label className="text-[10px] text-gray-400">Select row</label>
+                                    <select
+                                        value={csvSelectedIndex}
+                                        onChange={(e) => {
+                                            const idx = Number(e.target.value);
+                                            setCsvSelectedIndex(idx);
+                                            const selected = csvProviders[idx];
+                                            if (!selected) return;
+                                            if (selected.npi) setNpi(selected.npi);
+                                            if (selected.name) setName(selected.name);
+                                            if (selected.address) setAddress(selected.address);
+                                        }}
+                                        className="rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-gray-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    >
+                                        <option value={-1}>Choose a provider…</option>
+                                        {csvProviders.map((p, idx) => (
+                                            <option key={idx} value={idx}>
+                                                {(p.name || "(Unnamed)") + (p.npi ? ` — ${p.npi}` : "")}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="text-[10px] text-gray-500">Loaded {csvProviders.length} rows</div>
+                            </div>
+                            <p className="text-[10px] text-gray-500 mt-2">
+                                Tip: We only prefill one row at a time. Review and click <span className="text-gray-300">Validate & Add</span>.
+                            </p>
+                        </div>
+                    )}
+
+                    {csvError && (
+                        <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 p-3">
+                            <p className="text-[10px] text-rose-200/80">{csvError}</p>
+                        </div>
+                    )}
 
                     <div>
                         <label className="mb-1 block text-sm font-medium text-gray-400">NPI Number</label>
