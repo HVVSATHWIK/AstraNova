@@ -61,6 +61,7 @@ export interface ExtractedProviderData {
 export interface AgentWorkflowState {
     status: "Processing" | "Ready" | "Flagged" | "Blocked" | "Unverified";
     securityCheck?: SecurityCheckResult;
+    addressVerification?: AddressVerificationResult;
     evidence?: VerifiedData;
     scoring?: ScoringResult;
     enrichment?: EnrichmentData;
@@ -170,6 +171,14 @@ function inferCountryFromAddress(address: string): string | null {
     // Canada postal code
     if (/\b[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z]\s*\d[ABCEGHJ-NPRSTV-Z]\d\b/i.test(a) || /\bcanada\b/.test(a)) return "CA";
 
+    // Australia / New Zealand (postcode overlap; use country/state hints)
+    if (/\b(australia|\bau\b)\b/.test(a) || /\b(nsw|vic|qld|wa|sa|tas|act|nt)\b/.test(a)) return "AU";
+    if (/\b(new zealand|\bnz\b)\b/.test(a)) return "NZ";
+
+    // Germany / France (5-digit postcodes; rely on country hints)
+    if (/\b(germany|deutschland|\bde\b)\b/.test(a)) return "DE";
+    if (/\b(france|\bfr\b)\b/.test(a)) return "FR";
+
     return null;
 }
 
@@ -200,6 +209,7 @@ export function verifyPostalAddress(address: string): AddressVerificationResult 
     }
 
     if (inferredCountry === "IN") {
+        const hasIndiaKeywords = /\b(flat|fl\.?|plot|near|opp\.?|opposite|behind|beside|sector|phase|taluk|tehsil|district|dist\.?|road|rd\.?|street|st\.?|lane|ln\.?|nagar|colony|layout)\b/i.test(normalized);
         const pinMatch = normalized.match(/(?:^|\D)(\d{6})(?:\D|$)/);
         if (!pinMatch) {
             issues.push("Missing Indian PIN code (6 digits)");
@@ -219,7 +229,28 @@ export function verifyPostalAddress(address: string): AddressVerificationResult 
         const commaParts = normalized.split(",").map(s => s.trim()).filter(Boolean);
         if (commaParts.length < 3) {
             issues.push("Indian address should include locality, city, state, and PIN");
-            confidence -= 20;
+            confidence -= hasIndiaKeywords ? 10 : 20;
+        }
+
+        // Heuristic: if we can find a state and a PIN, prefer state to appear before PIN near the end.
+        const stateRegex = /\b(andhra pradesh|arunachal pradesh|assam|bihar|chhattisgarh|goa|gujarat|haryana|himachal pradesh|jharkhand|karnataka|kerala|madhya pradesh|maharashtra|manipur|meghalaya|mizoram|nagaland|odisha|punjab|rajasthan|sikkim|tamil nadu|telangana|tripura|uttar pradesh|uttarakhand|west bengal|delhi|jammu and kashmir|ladakh|puducherry)\b/i;
+        const stateMatch = normalized.match(stateRegex);
+        const pinIndex = pinMatch ? normalized.lastIndexOf(pinMatch[1]) : -1;
+        const stateIndex = stateMatch ? normalized.lastIndexOf(stateMatch[0]) : -1;
+
+        if (pinIndex !== -1 && stateIndex !== -1 && pinIndex < stateIndex) {
+            issues.push("PIN appears before state; expected 'City, State PIN' ordering");
+            confidence -= 10;
+        }
+
+        if (!stateMatch) {
+            issues.push("Missing Indian state/UT");
+            confidence -= 10;
+        }
+
+        if (!hasIndiaKeywords && commaParts.length >= 3) {
+            // Encourage more natural Indian address cues
+            confidence -= 5;
         }
     } else if (inferredCountry === "US") {
         if (!/\b\d{5}(?:-\d{4})?\b/.test(normalized)) {
@@ -235,6 +266,26 @@ export function verifyPostalAddress(address: string): AddressVerificationResult 
         if (!/\b[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z]\s*\d[ABCEGHJ-NPRSTV-Z]\d\b/i.test(normalized)) {
             issues.push("Missing Canada postal code");
             confidence -= 25;
+        }
+    } else if (inferredCountry === "AU") {
+        if (!/\b\d{4}\b/.test(normalized)) {
+            issues.push("Missing Australia postcode (4 digits)");
+            confidence -= 20;
+        }
+    } else if (inferredCountry === "NZ") {
+        if (!/\b\d{4}\b/.test(normalized)) {
+            issues.push("Missing New Zealand postcode (4 digits)");
+            confidence -= 20;
+        }
+    } else if (inferredCountry === "DE") {
+        if (!/\b\d{5}\b/.test(normalized)) {
+            issues.push("Missing Germany postcode (5 digits)");
+            confidence -= 20;
+        }
+    } else if (inferredCountry === "FR") {
+        if (!/\b\d{5}\b/.test(normalized)) {
+            issues.push("Missing France postcode (5 digits)");
+            confidence -= 20;
         }
     } else {
         // Generic expectations for a global address string
@@ -355,21 +406,21 @@ async function fetchRegistryData(input: any): Promise<VerifiedData> {
 
 // --- 3. Unified Scoring (Deterministic) ---
 
-function calculateScore(input: any, evidence: VerifiedData): ScoringResult {
+function calculateScore(input: any, evidence: VerifiedData, addressCheck?: AddressVerificationResult): ScoringResult {
     let score = 100;
     const discrepancies: string[] = [];
     let isFatal = false;
 
     // Address Structure Verification (world-aware)
-    const addressCheck = verifyPostalAddress(input.address || "");
-    if (addressCheck.issues.length > 0) {
-        discrepancies.push(...addressCheck.issues.map(i => `Address: ${i}`));
+    const addrCheck = addressCheck ?? verifyPostalAddress(input.address || "");
+    if (addrCheck.issues.length > 0) {
+        discrepancies.push(...addrCheck.issues.map(i => `Address: ${i}`));
     }
-    if (addressCheck.confidence < 80) {
+    if (addrCheck.confidence < 80) {
         // Penalize progressively; cap so it doesn't fully dominate scoring.
-        const penalty = Math.min(40, Math.round((80 - addressCheck.confidence) * 0.75));
+        const penalty = Math.min(40, Math.round((80 - addrCheck.confidence) * 0.75));
         score -= penalty;
-        discrepancies.push(`Address Quality Low (${addressCheck.confidence}%)`);
+        discrepancies.push(`Address Quality Low (${addrCheck.confidence}%)`);
     }
 
     // Trust Multiplier
@@ -469,7 +520,17 @@ async function runEnrichment(data: any): Promise<EnrichmentData> {
 
 export async function extractDataFromDocument(base64Image: string): Promise<ExtractedProviderData | null> {
     try {
-        const prompt = "Analyze this medical provider document/ID. Extract the following fields strictly as JSON: { \"npi\": \"10 digit number or empty\", \"name\": \"Full Name\", \"address\": \"Full Address\", \"confidence\": 0-100 }. If fields are missing, make a best guess or leave empty.";
+        const prompt =
+            "Analyze this medical provider document/ID image.\n" +
+            "Extract the following fields strictly as JSON with these exact keys:\n" +
+            "{ \"npi\": \"10 digit number or empty\", \"name\": \"Full Name\", \"address\": \"Full Address\", \"confidence\": 0-100 }\n\n" +
+            "Address guidance:\n" +
+            "- Preserve the address as written (include commas/lines if visible).\n" +
+            "- If India: try to include City, State/UT, and 6-digit PIN. Optional: Flat/Plot, Near landmark, District/Taluk.\n" +
+            "- If other countries: try to include postcode/ZIP and country if present.\n" +
+            "Rules:\n" +
+            "- If a field is not present, return empty string for that field.\n" +
+            "- Do NOT add extra keys. Return only valid JSON.";
 
         const imagePart = {
             inlineData: {
@@ -507,9 +568,12 @@ export async function runAgentWorkflow(providerId: string, providerData: any) {
         const securityCheck = validateInputSchema(providerData);
         if (!securityCheck.passed) {
             dispatchLog("SECURITY", "Blocked: " + securityCheck.reasons.join(", "), "error");
+
+            const addressCheck = verifyPostalAddress(providerData.address || "");
             await updateProviderState(providerId, {
                 status: "Blocked",
                 securityCheck,
+                addressVerification: addressCheck,
                 lastUpdated: new Date().toISOString()
             });
             return;
@@ -544,7 +608,7 @@ export async function runAgentWorkflow(providerId: string, providerData: any) {
 
         // Step 3: Scoring
         dispatchLog("JUDGE", "Calculating Identity Score & Trust Levels...", "info");
-        const scoring = calculateScore(providerData, evidence);
+        const scoring = calculateScore(providerData, evidence, addressCheck);
 
         let logType: "info" | "success" | "warning" | "error" = "info";
         if (scoring.finalStatus === 'VERIFIED') logType = "success";
@@ -565,6 +629,7 @@ export async function runAgentWorkflow(providerId: string, providerData: any) {
             status: scoring.finalStatus === 'VERIFIED' ? 'Ready' :
                 scoring.finalStatus === 'FLAGGED' ? 'Flagged' :
                     scoring.finalStatus === 'BLOCKED' ? 'Blocked' : 'Unverified',
+            addressVerification: addressCheck,
             evidence,
             scoring,
             enrichment,
@@ -588,12 +653,39 @@ export function generateDirectoryReport(providers: any[]) {
     // Dispatch log for visibility
     dispatchLog("ORCHESTRATOR", "Directory Manager: Generating Batch Report...", "info");
 
+    const issueCounts = new Map<string, number>();
+    const countryCounts = new Map<string, number>();
+
+    for (const p of providers) {
+        const issues: string[] = p?.scoring?.discrepancies || [];
+        for (const issue of issues) {
+            issueCounts.set(issue, (issueCounts.get(issue) || 0) + 1);
+        }
+
+        const inferredCountry =
+            p?.addressVerification?.inferredCountry ??
+            verifyPostalAddress(p?.address || "").inferredCountry ??
+            "GLOBAL";
+        countryCounts.set(inferredCountry, (countryCounts.get(inferredCountry) || 0) + 1);
+    }
+
+    const top_issues = Array.from(issueCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([issue, count]) => ({ issue, count }));
+
+    const country_distribution = Array.from(countryCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([country, count]) => ({ country, count }));
+
     const report = {
         timestamp: new Date().toISOString(),
         total_providers: providers.length,
         verified_count: providers.filter((p: any) => p.status === "Ready").length,
         flagged_count: providers.filter((p: any) => p.status === "Flagged").length,
         avg_confidence: providers.reduce((acc: number, p: any) => acc + (p.scoring?.identityScore || 0), 0) / (providers.length || 1),
+        top_issues,
+        country_distribution,
         records: providers.map((p: any) => ({
             npi: p.npi,
             name: p.name,

@@ -58,6 +58,23 @@ export function ActionPanel() {
                 const extracted = await extractDataFromDocument(base64);
 
                 if (extracted) {
+                    let reviewBeforeSubmit = false;
+                    try {
+                        reviewBeforeSubmit = localStorage.getItem('astranova.reviewBeforeSubmit') === 'true';
+                    } catch {
+                        reviewBeforeSubmit = false;
+                    }
+
+                    if (reviewBeforeSubmit) {
+                        setScanStatus("");
+                        setNpi(extracted.npi);
+                        setName(extracted.name);
+                        setAddress(extracted.address);
+                        setActiveTab('form');
+                        setLoading(false);
+                        return;
+                    }
+
                     setScanStatus("Extraction Complete. Validating...");
                     await processSubmission(extracted.npi, extracted.name, extracted.address);
                 } else {
@@ -184,9 +201,14 @@ export function ActionPanel() {
                             type="text"
                             value={address}
                             onChange={(e) => setAddress(e.target.value)}
-                            placeholder="e.g. 123 Medical Plaza, Metro City"
+                            placeholder="e.g. 2nd Floor, Aster Clinic, MG Road, Bengaluru, Karnataka 560001, India"
                             className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
                         />
+                        <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">
+                            India tip: include <span className="text-gray-400">City, State, PIN</span>. Optional (if available): Flat/Plot, Near landmark, District/Taluk.
+                            <br />
+                            Global tip: include <span className="text-gray-400">postcode</span> and <span className="text-gray-400">country</span> when formats vary.
+                        </p>
                     </div>
 
                     <button
@@ -257,7 +279,9 @@ export function ActionPanel() {
                             <Scan className="h-3 w-3" /> AI Extraction Agent
                         </h4>
                         <p className="text-[10px] text-blue-200/70">
-                            Upload a scan of a provider's ID or application form. Our Vision Agent will automatically extract NPI, Name, and Address details.
+                            Upload a clear photo/scan of a provider ID, letterhead, visiting card, or application form.
+                            The Vision Agent extracts <span className="text-blue-200">NPI (10 digits)</span>, <span className="text-blue-200">Name</span>, and <span className="text-blue-200">Address</span> (including PIN/postcode if present).
+                            If the output looks off, re-upload with a clearer address block or use the Manual tab.
                         </p>
                     </div>
                 </div>

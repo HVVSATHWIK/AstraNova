@@ -6,7 +6,7 @@ import { collection, getDocs, onSnapshot, query, where } from "firebase/firestor
 import { db, auth } from "../lib/firebase";
 import { signOut } from "firebase/auth";
 import clsx from "clsx";
-import { ShieldCheck, Activity, Users, DollarSign, Clock, FileSpreadsheet, Printer, X, Briefcase, LayoutDashboard } from "lucide-react";
+import { ShieldCheck, Activity, Users, DollarSign, Clock, FileSpreadsheet, Printer, X, Briefcase, LayoutDashboard, HelpCircle } from "lucide-react";
 
 import { generateDirectoryReport } from "../lib/agentSystem";
 
@@ -19,6 +19,14 @@ export function Dashboard() {
     const [showReport, setShowReport] = useState(false);
     const [reportData, setReportData] = useState<any>(null);
     const [role, setRole] = useState<'specialist' | 'director'>('specialist');
+    const [showGuide, setShowGuide] = useState(false);
+    const [reviewBeforeSubmit, setReviewBeforeSubmit] = useState(() => {
+        try {
+            return localStorage.getItem('astranova.reviewBeforeSubmit') === 'true';
+        } catch {
+            return false;
+        }
+    });
 
     useEffect(() => {
         if (!auth.currentUser) return;
@@ -118,6 +126,13 @@ export function Dashboard() {
                         </div>
                         <div className="h-6 w-px bg-white/10 mx-2"></div>
                         <button
+                            onClick={() => setShowGuide(true)}
+                            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors backdrop-blur-sm"
+                        >
+                            <HelpCircle className="h-4 w-4" />
+                            Guide
+                        </button>
+                        <button
                             onClick={handleExportCSV}
                             className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors backdrop-blur-sm"
                         >
@@ -214,7 +229,7 @@ export function Dashboard() {
                                 {roi.moneySaved.toLocaleString()}
                             </h3>
                             <p className="text-[10px] text-gray-500 mt-2">
-                                Based on ₹{OPS_COST_PER_HOUR_INR}/hr operational cost vs manual entry.
+                                Assumptions: ₹{OPS_COST_PER_HOUR_INR}/hr, {MANUAL_MINS_PER_PROVIDER} mins/provider.
                             </p>
                         </div>
                         <div className="h-12 w-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20">
@@ -230,7 +245,7 @@ export function Dashboard() {
                                 <span className="text-sm font-normal text-gray-400">hours</span>
                             </h3>
                             <p className="text-[10px] text-gray-500 mt-2">
-                                Assuming 15 mins manual verification per provider.
+                                Assumptions: ₹{OPS_COST_PER_HOUR_INR}/hr, {MANUAL_MINS_PER_PROVIDER} mins/provider.
                             </p>
                         </div>
                         <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 border border-blue-500/20">
@@ -317,6 +332,41 @@ export function Dashboard() {
                                         </div>
                                     </div>
 
+                                    {/* Insights */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                                        <div className="border rounded-xl p-5 bg-gray-50">
+                                            <h3 className="text-sm font-bold text-gray-800 mb-3">Top recurring issues</h3>
+                                            {(reportData.top_issues?.length ?? 0) > 0 ? (
+                                                <div className="space-y-2">
+                                                    {reportData.top_issues.slice(0, 5).map((x: any, idx: number) => (
+                                                        <div key={idx} className="flex items-center justify-between gap-4">
+                                                            <span className="text-xs text-gray-700 truncate" title={x.issue}>{x.issue}</span>
+                                                            <span className="text-xs font-bold text-gray-900 bg-white border rounded px-2 py-0.5 shrink-0">{x.count}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-gray-500 italic">No issues detected in current dataset.</p>
+                                            )}
+                                        </div>
+
+                                        <div className="border rounded-xl p-5 bg-gray-50">
+                                            <h3 className="text-sm font-bold text-gray-800 mb-3">Country distribution</h3>
+                                            {(reportData.country_distribution?.length ?? 0) > 0 ? (
+                                                <div className="space-y-2">
+                                                    {reportData.country_distribution.slice(0, 8).map((x: any, idx: number) => (
+                                                        <div key={idx} className="flex items-center justify-between gap-4">
+                                                            <span className="text-xs text-gray-700 font-mono">{x.country}</span>
+                                                            <span className="text-xs font-bold text-gray-900 bg-white border rounded px-2 py-0.5">{x.count}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-gray-500 italic">No address country signals available.</p>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     {/* Flagged Items Table */}
                                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-800">
                                         <ShieldCheck className="h-5 w-5 text-red-500" />
@@ -368,6 +418,70 @@ export function Dashboard() {
                         </div>
                     )
                 }
+
+                {/* Guide Modal */}
+                {showGuide && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col">
+                            <div className="p-6 border-b flex items-center justify-between bg-gray-50">
+                                <div className="flex items-center gap-2">
+                                    <HelpCircle className="h-6 w-6 text-indigo-600" />
+                                    <div>
+                                        <h2 className="text-xl font-bold text-gray-900">Quick Guide</h2>
+                                        <p className="text-sm text-gray-500">How to use AstraNova end-to-end</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setShowGuide(false)} className="p-2 hover:bg-gray-200 rounded-full text-gray-500">
+                                    <X className="h-5 w-5" />
+                                </button>
+                            </div>
+
+                            <div className="p-6 bg-white text-gray-900 space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="border rounded-xl p-4">
+                                        <h3 className="text-sm font-bold text-gray-800 mb-2">Workflow</h3>
+                                        <ol className="text-sm text-gray-700 space-y-1 list-decimal list-inside">
+                                            <li>Input provider data (Manual or Scan).</li>
+                                            <li>Validation checks schema + address quality.</li>
+                                            <li>Enrichment adds summary for display.</li>
+                                            <li>Review results in the Validation Queue.</li>
+                                        </ol>
+                                    </div>
+                                    <div className="border rounded-xl p-4">
+                                        <h3 className="text-sm font-bold text-gray-800 mb-2">If data is “weird”</h3>
+                                        <p className="text-sm text-gray-700">
+                                            Expand a provider row to see <span className="font-semibold">Address Verification</span> and issues.
+                                            For India, include City, State/UT, and 6-digit PIN when possible.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="border rounded-xl p-4 flex items-start justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-sm font-bold text-gray-800 mb-1">Review before validation</h3>
+                                        <p className="text-sm text-gray-700">
+                                            If you’re uncertain about scanned/extracted fields, enable this.
+                                            Scan will prefill the Manual form so you can edit before submitting.
+                                        </p>
+                                    </div>
+                                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 select-none">
+                                        <input
+                                            type="checkbox"
+                                            checked={reviewBeforeSubmit}
+                                            onChange={(e) => {
+                                                const next = e.target.checked;
+                                                setReviewBeforeSubmit(next);
+                                                try { localStorage.setItem('astranova.reviewBeforeSubmit', String(next)); } catch { }
+                                            }}
+                                            className="h-4 w-4"
+                                        />
+                                        Enable
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </main>
         </div>
     );

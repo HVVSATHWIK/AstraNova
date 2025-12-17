@@ -10,6 +10,12 @@ interface AgentWorkflowState {
     name: string;
     address: string;
     status: "Processing" | "Ready" | "Flagged" | "Blocked" | "Unverified";
+    addressVerification?: {
+        inferredCountry: string | null;
+        confidence: number;
+        issues: string[];
+        normalized: string;
+    };
     securityCheck?: {
         passed: boolean;
         reasons: string[];
@@ -158,6 +164,16 @@ export function ProviderTable() {
                                                 <span className="text-[10px] font-mono text-indigo-400/80 bg-indigo-500/10 px-1.5 py-0.5 rounded w-fit mt-1 border border-indigo-500/20 truncate">
                                                     NPI: {p.npi}
                                                 </span>
+                                                {p.addressVerification && (
+                                                    <span className={clsx(
+                                                        "mt-1 text-[10px] font-bold uppercase tracking-wider w-fit px-2 py-0.5 rounded border",
+                                                        p.addressVerification.confidence >= 80
+                                                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                                            : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                                    )}>
+                                                        {p.addressVerification.inferredCountry || "GLOBAL"} • {p.addressVerification.confidence}%
+                                                    </span>
+                                                )}
                                             </div>
                                         </td>
 
@@ -268,6 +284,38 @@ export function ProviderTable() {
                                                                 </div>
                                                                 {p.evidence ? (
                                                                     <div className="space-y-3 flex-1">
+                                                                        {p.addressVerification && (
+                                                                            <div className="bg-white/5 rounded-lg p-3 border border-white/5">
+                                                                                <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Address Verification</span>
+                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                    <span className={clsx(
+                                                                                        "text-[10px] px-2 py-0.5 rounded-full border font-bold",
+                                                                                        p.addressVerification.confidence >= 80
+                                                                                            ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                                                                                            : "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                                                                                    )}>
+                                                                                        {p.addressVerification.inferredCountry || "GLOBAL"} • {p.addressVerification.confidence}%
+                                                                                    </span>
+                                                                                    <span className="text-[10px] text-gray-500">Normalized:</span>
+                                                                                    <span className="text-xs text-gray-200 break-words">{p.addressVerification.normalized}</span>
+                                                                                </div>
+                                                                                {p.addressVerification.issues?.length > 0 ? (
+                                                                                    <div className="mt-2 space-y-1">
+                                                                                        {p.addressVerification.issues.slice(0, 5).map((issue, idx) => (
+                                                                                            <div key={idx} className="text-[10px] text-amber-300 flex items-center gap-2">
+                                                                                                <div className="h-1 w-1 bg-amber-400 rounded-full shrink-0" />
+                                                                                                <span className="break-words">{issue}</span>
+                                                                                            </div>
+                                                                                        ))}
+                                                                                        {p.addressVerification.issues.length > 5 && (
+                                                                                            <div className="text-[10px] text-gray-500 italic">+{p.addressVerification.issues.length - 5} more…</div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="mt-2 text-[10px] text-emerald-300">No address issues detected.</div>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
                                                                         <div className="bg-white/5 rounded-lg p-3 border border-white/5">
                                                                             <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Source Provenance</span>
                                                                             <span className={clsx("text-sm font-medium",
