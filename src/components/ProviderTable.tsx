@@ -9,6 +9,7 @@ interface AgentWorkflowState {
     npi: string;
     name: string;
     address: string;
+    inputSource?: string;
     status: "Processing" | "Ready" | "Flagged" | "Blocked" | "Unverified";
     addressVerification?: {
         inferredCountry: string | null;
@@ -164,6 +165,11 @@ export function ProviderTable() {
                                                 <span className="text-[10px] font-mono text-indigo-400/80 bg-indigo-500/10 px-1.5 py-0.5 rounded w-fit mt-1 border border-indigo-500/20 truncate">
                                                     NPI: {p.npi}
                                                 </span>
+                                                {p.inputSource && (
+                                                    <span className="mt-1 text-[10px] font-bold uppercase tracking-wider w-fit px-2 py-0.5 rounded border bg-white/5 text-gray-300 border-white/10">
+                                                        SOURCE • {p.inputSource}
+                                                    </span>
+                                                )}
                                                 {p.addressVerification && (
                                                     <span className={clsx(
                                                         "mt-1 text-[10px] font-bold uppercase tracking-wider w-fit px-2 py-0.5 rounded border",
@@ -322,6 +328,12 @@ export function ProviderTable() {
                                                                                 p.evidence.source === 'LIVE_API' ? "text-green-300" : "text-amber-300"
                                                                             )}>{p.evidence.source}</span>
                                                                         </div>
+                                                                        {p.inputSource && (
+                                                                            <div className="bg-white/5 rounded-lg p-3 border border-white/5">
+                                                                                <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Input Source</span>
+                                                                                <span className="text-sm font-medium text-gray-200">{p.inputSource}</span>
+                                                                            </div>
+                                                                        )}
                                                                         <div>
                                                                             <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Trust Level</span>
                                                                             <div className="w-full bg-gray-700 h-1.5 rounded-full overflow-hidden">

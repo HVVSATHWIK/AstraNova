@@ -58,6 +58,10 @@ export interface ExtractedProviderData {
     confidence: number;
 }
 
+function isValidNpi(npi: unknown): boolean {
+    return typeof npi === 'string' && /^\d{10}$/.test(npi);
+}
+
 export interface AgentWorkflowState {
     status: "Processing" | "Ready" | "Flagged" | "Blocked" | "Unverified";
     securityCheck?: SecurityCheckResult;
@@ -308,11 +312,6 @@ export function verifyPostalAddress(address: string): AddressVerificationResult 
 function validateInputSchema(data: any): SecurityCheckResult {
     const reasons: string[] = [];
 
-    // NPI Format Check (10 digits)
-    if (!data.npi || !/^\d{10}$/.test(data.npi)) {
-        reasons.push("NPI Format Invalid (Must be 10 digits)");
-    }
-
     // Postal-code sabotage patterns
     if (typeof data.address === 'string') {
         const addr = data.address;
@@ -337,6 +336,27 @@ function validateInputSchema(data: any): SecurityCheckResult {
 async function fetchRegistryData(input: any): Promise<VerifiedData> {
     // In a real system, this would call NPPES API.
     // We simulate API behavior here with strict provenance tagging.
+
+    // If there is no valid registry identifier (e.g., India-first inputs),
+    // we cannot use external registry acquisition. Mark as USER_INPUT.
+    if (!isValidNpi(input?.npi)) {
+        dispatchLog(
+            "ACQUISITION",
+            "No valid registry ID provided (NPI). Skipping external lookup; marking as USER_INPUT.",
+            "warning"
+        );
+        return {
+            source: 'USER_INPUT',
+            timestamp: Date.now(),
+            details: {
+                npi: typeof input?.npi === 'string' ? input.npi : "",
+                name: input?.name || "",
+                address: input?.address || "",
+                license_status: 'ERROR',
+                specialties: []
+            }
+        };
+    }
 
     // Simulate API Latency
     await new Promise(r => setTimeout(r, 1500));
@@ -410,6 +430,11 @@ function calculateScore(input: any, evidence: VerifiedData, addressCheck?: Addre
     let score = 100;
     const discrepancies: string[] = [];
     let isFatal = false;
+
+    if (!isValidNpi(input?.npi)) {
+        discrepancies.push("Missing/invalid registry ID (NPI)");
+        score -= 10;
+    }
 
     // Address Structure Verification (world-aware)
     const addrCheck = addressCheck ?? verifyPostalAddress(input.address || "");
@@ -557,11 +582,44 @@ export async function extractDataFromDocument(base64Image: string): Promise<Extr
     }
 }
 
+export async function extractDataFromText(text: string): Promise<ExtractedProviderData | null> {
+    try {
+        const prompt =
+            "You are extracting medical provider details from messy free-text (email, WhatsApp, spreadsheet row, website copy).\n" +
+            "Extract strictly as JSON with these exact keys:\n" +
+            '{ "npi": "10 digit number or empty", "name": "Full Name or empty", "address": "Full Address or empty", "confidence": 0-100 }\n\n' +
+            "Rules:\n" +
+            "- If a field is not present, return empty string for that field.\n" +
+            "- Do NOT add extra keys. Return only valid JSON.\n" +
+            "- If the text contains multiple providers, extract only the first one.\n\n" +
+            "Input text:\n" +
+            text;
+
+        const result = await model.generateContent(prompt);
+        const json = extractJSON(result.response.text());
+        if (!json) return null;
+
+        return {
+            npi: json.npi || "",
+            name: json.name || "",
+            address: json.address || "",
+            confidence: json.confidence || 0
+        };
+    } catch (e) {
+        console.error("Text Extraction Failed", e);
+        return null;
+    }
+}
+
 // --- 5. Main Orchestrator ---
 
 export async function runAgentWorkflow(providerId: string, providerData: any) {
     try {
+        const inputSource = typeof providerData?.inputSource === 'string' ? providerData.inputSource : null;
         dispatchLog("ORCHESTRATOR", "Initializing Gatekeeper Workflow...", "info");
+        if (inputSource) {
+            dispatchLog("ORCHESTRATOR", `Input captured via: ${inputSource}`, "info");
+        }
         await updateProviderState(providerId, { status: "Processing" });
 
         // Step 1: Security Gate

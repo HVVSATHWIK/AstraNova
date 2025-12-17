@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { collection, addDoc } from "firebase/firestore";
 import { db, auth } from "../lib/firebase";
-import { runAgentWorkflow, extractDataFromDocument } from "../lib/agentSystem";
+import { runAgentWorkflow, extractDataFromDocument, extractDataFromText } from "../lib/agentSystem";
 import { UserPlus, Sparkles, Database, FileText, Upload, Scan } from "lucide-react";
 import clsx from "clsx";
 
@@ -146,11 +146,18 @@ export function ActionPanel() {
     const [csvError, setCsvError] = useState<string>("");
     const [csvSelectedIndex, setCsvSelectedIndex] = useState<number>(-1);
 
+    const [pasteText, setPasteText] = useState("");
+    const [pasteStatus, setPasteStatus] = useState<string>("");
+    const [pasteLoading, setPasteLoading] = useState(false);
+
+    const [inputSource, setInputSource] = useState<"MANUAL" | "SCAN" | "CSV" | "PASTE" | "DEMO">("MANUAL");
+
     const fillDemoData = () => {
         const random = DEMO_PROVIDERS[Math.floor(Math.random() * DEMO_PROVIDERS.length)];
         setNpi(random.npi);
         setName(random.name);
         setAddress(random.address);
+        setInputSource("DEMO");
     };
 
     // New: Handle Document Upload
@@ -161,6 +168,12 @@ export function ActionPanel() {
         const isCsv = file.type === "text/csv" || /\.csv$/i.test(file.name);
         if (isCsv) {
             alert("This upload expects an image for Scan. To import a CSV dataset, use Manual → Import CSV.");
+            return;
+        }
+
+        const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+        if (isPdf) {
+            alert("PDF upload is not supported in Scan yet. Please upload a clear screenshot/photo of the page that contains the provider details (especially the address block), or paste the text in Manual.");
             return;
         }
 
@@ -190,13 +203,14 @@ export function ActionPanel() {
                         setNpi(extracted.npi);
                         setName(extracted.name);
                         setAddress(extracted.address);
+                        setInputSource("SCAN");
                         setActiveTab('form');
                         setLoading(false);
                         return;
                     }
 
                     setScanStatus("Extraction Complete. Validating...");
-                    await processSubmission(extracted.npi, extracted.name, extracted.address);
+                    await processSubmission(extracted.npi, extracted.name, extracted.address, "SCAN");
                 } else {
                     alert("Could not extract data from the uploaded image. Try a clearer photo (include the full address block), or use Manual entry.");
                     setScanStatus("");
@@ -244,7 +258,7 @@ export function ActionPanel() {
         }
     };
 
-    const processSubmission = async (npiVal: string, nameVal: string, addressVal: string) => {
+    const processSubmission = async (npiVal: string, nameVal: string, addressVal: string, source?: "MANUAL" | "SCAN" | "CSV" | "PASTE" | "DEMO") => {
         try {
             const docData = {
                 npi: npiVal,
@@ -253,10 +267,11 @@ export function ActionPanel() {
                 status: "Processing",
                 createdAt: new Date().toISOString(),
                 userId: auth.currentUser?.uid,
+                inputSource: source || inputSource,
             };
 
             const docRef = await addDoc(collection(db, "providers"), docData);
-            runAgentWorkflow(docRef.id, { npi: npiVal, name: nameVal, address: addressVal });
+            runAgentWorkflow(docRef.id, { npi: npiVal, name: nameVal, address: addressVal, inputSource: source || inputSource });
 
             // Reset
             setNpi("");
@@ -274,9 +289,38 @@ export function ActionPanel() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!npi || !name || !address) return;
+        if (!name || !address) return;
         setLoading(true);
         await processSubmission(npi, name, address);
+    };
+
+    const handlePasteExtract = async () => {
+        if (!pasteText.trim()) return;
+        setPasteLoading(true);
+        setPasteStatus("Extracting fields from pasted text...");
+        try {
+            const extracted = await extractDataFromText(pasteText);
+            if (!extracted) {
+                setPasteStatus("Could not extract fields. Try pasting a cleaner block that includes Name and Address.");
+                return;
+            }
+
+            if (extracted.npi) setNpi(extracted.npi);
+            if (extracted.name) setName(extracted.name);
+            if (extracted.address) setAddress(extracted.address);
+            setInputSource("PASTE");
+
+            setPasteStatus(
+                extracted.confidence >= 70
+                    ? `Extraction complete (${extracted.confidence}% confidence). Review and submit.`
+                    : `Extraction needs review (${extracted.confidence}% confidence). Please confirm fields before submit.`
+            );
+        } catch (e) {
+            console.error("Paste extraction failed", e);
+            setPasteStatus("Paste extraction failed.");
+        } finally {
+            setPasteLoading(false);
+        }
     };
 
     return (
@@ -336,6 +380,45 @@ export function ActionPanel() {
                         </button>
                     </div>
 
+                    <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                        <p className="text-[10px] text-gray-400 font-semibold mb-1">Common input types in real workflows</p>
+                        <div className="text-[10px] text-gray-500 leading-relaxed">
+                            <div><span className="text-gray-300">Manual:</span> type or copy/paste from email, WhatsApp, Teams, or a website.</div>
+                            <div><span className="text-gray-300">Paste text:</span> paste a messy message/row and extract fields.</div>
+                            <div><span className="text-gray-300">CSV:</span> import a dataset and pick one row to validate.</div>
+                            <div><span className="text-gray-300">Scan:</span> upload a clear photo/screenshot of a card/form (PDFs: use screenshot/paste).</div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <label className="text-[10px] text-gray-400 font-semibold">Paste from email/WhatsApp/Teams (optional)</label>
+                            <button
+                                type="button"
+                                disabled={pasteLoading || !pasteText.trim()}
+                                onClick={handlePasteExtract}
+                                className={clsx(
+                                    "text-[10px] font-semibold px-2 py-1 rounded-md transition-colors",
+                                    pasteLoading || !pasteText.trim()
+                                        ? "bg-white/5 text-gray-600"
+                                        : "bg-indigo-600 text-white hover:bg-indigo-700"
+                                )}
+                            >
+                                {pasteLoading ? "Extracting…" : "Extract"}
+                            </button>
+                        </div>
+                        <textarea
+                            value={pasteText}
+                            onChange={(e) => setPasteText(e.target.value)}
+                            placeholder="Example: Dr. Ananya Sharma, Apollo Clinic, MG Road, Bengaluru 560001. NPI 1487000001"
+                            rows={3}
+                            className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
+                        />
+                        {pasteStatus && (
+                            <p className="mt-2 text-[10px] text-gray-500">{pasteStatus}</p>
+                        )}
+                    </div>
+
                     {csvProviders.length > 0 && (
                         <div className="rounded-lg border border-white/10 bg-white/5 p-3">
                             <div className="flex items-center justify-between gap-3">
@@ -351,6 +434,7 @@ export function ActionPanel() {
                                             if (selected.npi) setNpi(selected.npi);
                                             if (selected.name) setName(selected.name);
                                             if (selected.address) setAddress(selected.address);
+                                            setInputSource("CSV");
                                         }}
                                         className="rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-gray-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                     >
@@ -377,12 +461,12 @@ export function ActionPanel() {
                     )}
 
                     <div>
-                        <label className="mb-1 block text-sm font-medium text-gray-400">NPI Number</label>
+                        <label className="mb-1 block text-sm font-medium text-gray-400">Provider ID (NPI if available)</label>
                         <input
                             type="text"
                             value={npi}
-                            onChange={(e) => setNpi(e.target.value)}
-                            placeholder="e.g. 1234567890"
+                            onChange={(e) => { setNpi(e.target.value); setInputSource("MANUAL"); }}
+                            placeholder="Optional (US NPI: 10 digits)"
                             className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
                         />
                     </div>
@@ -392,7 +476,7 @@ export function ActionPanel() {
                         <input
                             type="text"
                             value={name}
-                            onChange={(e) => setName(e.target.value)}
+                            onChange={(e) => { setName(e.target.value); setInputSource("MANUAL"); }}
                             placeholder="e.g. Dr. Jane Doe"
                             className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
                         />
@@ -403,7 +487,7 @@ export function ActionPanel() {
                         <input
                             type="text"
                             value={address}
-                            onChange={(e) => setAddress(e.target.value)}
+                            onChange={(e) => { setAddress(e.target.value); setInputSource("MANUAL"); }}
                             placeholder="e.g. 2nd Floor, Aster Clinic, MG Road, Bengaluru, Karnataka 560001, India"
                             className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
                         />
@@ -454,7 +538,7 @@ export function ActionPanel() {
                             type="file"
                             id="file-upload"
                             className="hidden"
-                            accept="image/*"
+                            accept="image/*,application/pdf,.pdf"
                             onChange={(e) => handleFileUpload(e.target.files)}
                         />
 
@@ -464,7 +548,7 @@ export function ActionPanel() {
                             </div>
                             <h3 className="text-sm font-semibold text-gray-200 mb-1">Upload Provider ID / Form</h3>
                             <p className="text-xs text-gray-500 mb-4">Drag & drop or click to browse</p>
-                            <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-1 rounded">Supports: PNG, JPG</span>
+                            <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-1 rounded">Supports: PNG, JPG (PDF: use screenshot/paste)</span>
                         </label>
                     </div>
 
@@ -484,7 +568,7 @@ export function ActionPanel() {
                         <p className="text-[10px] text-blue-200/70">
                             Upload a clear photo/scan of a provider ID, letterhead, visiting card, or application form.
                             The Vision Agent extracts <span className="text-blue-200">NPI (10 digits)</span>, <span className="text-blue-200">Name</span>, and <span className="text-blue-200">Address</span> (including PIN/postcode if present).
-                            If the output looks off, re-upload with a clearer address block or use the Manual tab.
+                            If the output looks off, re-upload with a clearer address block, or paste the text / use Manual.
                         </p>
                     </div>
                 </div>

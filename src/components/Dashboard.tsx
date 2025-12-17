@@ -441,11 +441,14 @@ export function Dashboard() {
                                     <div className="border rounded-xl p-4">
                                         <h3 className="text-sm font-bold text-gray-800 mb-2">Workflow</h3>
                                         <ol className="text-sm text-gray-700 space-y-1 list-decimal list-inside">
-                                            <li>Input provider data (Manual or Scan).</li>
-                                            <li>Validation checks schema + address quality.</li>
-                                            <li>Enrichment adds summary for display.</li>
-                                            <li>Review results in the Validation Queue.</li>
+                                            <li>Choose an input method: Manual (type/copy-paste), Paste Text, CSV Import, or Scan (image).</li>
+                                            <li>Review fields (recommended when unsure), then submit.</li>
+                                            <li>Validation checks safety + address quality and records evidence.</li>
+                                            <li>Review results and audit details in the Validation Queue.</li>
                                         </ol>
+                                        <p className="text-xs text-gray-500 mt-3">
+                                            Note: If your source is a PDF, use a screenshot of the relevant page or paste the text into Manual.
+                                        </p>
                                     </div>
                                     <div className="border rounded-xl p-4">
                                         <h3 className="text-sm font-bold text-gray-800 mb-2">If data is “weird”</h3>
