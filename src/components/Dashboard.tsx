@@ -10,6 +10,9 @@ import { ShieldCheck, Activity, Users, DollarSign, Clock, FileSpreadsheet, Print
 
 import { generateDirectoryReport } from "../lib/agentSystem";
 
+const OPS_COST_PER_HOUR_INR = 750;
+const MANUAL_MINS_PER_PROVIDER = 15;
+
 export function Dashboard() {
     const [metrics, setMetrics] = useState({ total: 0, avgConfidence: 0 });
     const [roi, setRoi] = useState({ hoursSaved: 0, moneySaved: 0 });
@@ -29,12 +32,10 @@ export function Dashboard() {
             setMetrics({ total, avgConfidence: avg });
 
             // ROI Calculations
-            // Assumption: Manual validation takes 15 mins (0.25 hrs) per provider
-            // Assumption: Operational cost is $45/hr
-            const hours = Math.round(total * 0.25);
+            const hours = Math.round(total * (MANUAL_MINS_PER_PROVIDER / 60));
             setRoi({
                 hoursSaved: hours,
-                moneySaved: hours * 45
+                moneySaved: hours * OPS_COST_PER_HOUR_INR
             });
         });
         return () => unsubscribe();
@@ -140,7 +141,7 @@ export function Dashboard() {
                 </div>
             </header>
 
-            <main className="mx-auto max-w-7xl px-6 py-8 relative z-10">
+            <main className="mx-auto max-w-7xl px-6 py-8 relative">
 
                 {/* Workflow Diagram - Added for Clarity */}
                 <div className="mb-10 flex justify-center">
@@ -209,11 +210,11 @@ export function Dashboard() {
                         <div>
                             <p className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">Projected Cost Savings</p>
                             <h3 className="text-3xl font-bold text-white flex items-baseline gap-1">
-                                <span className="text-emerald-400">$</span>
+                                <span className="text-emerald-400">₹</span>
                                 {roi.moneySaved.toLocaleString()}
                             </h3>
                             <p className="text-[10px] text-gray-500 mt-2">
-                                Based on $45/hr operational cost vs manual entry.
+                                Based on ₹{OPS_COST_PER_HOUR_INR}/hr operational cost vs manual entry.
                             </p>
                         </div>
                         <div className="h-12 w-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20">

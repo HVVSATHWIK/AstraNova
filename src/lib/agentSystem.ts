@@ -38,6 +38,13 @@ export interface SecurityCheckResult {
     reasons: string[];
 }
 
+export interface AddressVerificationResult {
+    inferredCountry: string | null;
+    confidence: number; // 0-100
+    issues: string[];
+    normalized: string;
+}
+
 export interface EnrichmentData {
     bio: string;
     education_summary: string;
@@ -136,6 +143,115 @@ function dispatchLog(agent: string, message: string, level: "info" | "success" |
     window.dispatchEvent(event);
 }
 
+function normalizeAddress(address: string): string {
+    return (address || "")
+        .replace(/\s+/g, " ")
+        .replace(/\s*,\s*/g, ", ")
+        .replace(/,+/g, ",")
+        .replace(/,\s*,/g, ",")
+        .trim();
+}
+
+function inferCountryFromAddress(address: string): string | null {
+    const a = (address || "").toLowerCase();
+    const hasIndiaPin = /(?:^|\D)\d{6}(?:\D|$)/.test(a);
+    if (hasIndiaPin || /\bindia\b/.test(a)) return "IN";
+
+    // Common Indian state hints (non-exhaustive; lightweight on purpose)
+    if (/\b(maharashtra|karnataka|tamil nadu|telangana|kerala|delhi|uttar pradesh|west bengal|gujarat|rajasthan|punjab|haryana|odisha|assam|bihar)\b/.test(a)) {
+        return "IN";
+    }
+
+    if (/\b\d{5}(?:-\d{4})?\b/.test(a) || /\b(usa|united states)\b/.test(a)) return "US";
+
+    // UK postcode (broad, pragmatic)
+    if (/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i.test(a) || /\b(uk|united kingdom)\b/.test(a)) return "GB";
+
+    // Canada postal code
+    if (/\b[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z]\s*\d[ABCEGHJ-NPRSTV-Z]\d\b/i.test(a) || /\bcanada\b/.test(a)) return "CA";
+
+    return null;
+}
+
+export function verifyPostalAddress(address: string): AddressVerificationResult {
+    const normalized = normalizeAddress(address);
+    const lower = normalized.toLowerCase();
+    const inferredCountry = inferCountryFromAddress(normalized);
+
+    const issues: string[] = [];
+    let confidence = 100;
+
+    // Global "obviously bogus" signals
+    if (!normalized || normalized.length < 8) {
+        issues.push("Address too short");
+        confidence -= 50;
+    }
+    if (!/[a-zA-Z]/.test(normalized)) {
+        issues.push("Address missing alphabetic locality text");
+        confidence -= 30;
+    }
+    if (/\b(unknown|n\/?a|na|null island|invalid address)\b/.test(lower)) {
+        issues.push("Address contains placeholder/bogus text");
+        confidence -= 60;
+    }
+    if (/\b0{5,6}\b/.test(lower) || /\b00000\b/.test(lower) || /\b000000\b/.test(lower)) {
+        issues.push("Postal code appears invalid (all zeros)");
+        confidence -= 80;
+    }
+
+    if (inferredCountry === "IN") {
+        const pinMatch = normalized.match(/(?:^|\D)(\d{6})(?:\D|$)/);
+        if (!pinMatch) {
+            issues.push("Missing Indian PIN code (6 digits)");
+            confidence -= 35;
+        } else {
+            const pin = pinMatch[1];
+            if (pin.startsWith("0")) {
+                issues.push("Indian PIN code cannot start with 0");
+                confidence -= 25;
+            }
+            if (/^(\d)\1{5}$/.test(pin)) {
+                issues.push("Indian PIN code looks synthetic");
+                confidence -= 25;
+            }
+        }
+
+        const commaParts = normalized.split(",").map(s => s.trim()).filter(Boolean);
+        if (commaParts.length < 3) {
+            issues.push("Indian address should include locality, city, state, and PIN");
+            confidence -= 20;
+        }
+    } else if (inferredCountry === "US") {
+        if (!/\b\d{5}(?:-\d{4})?\b/.test(normalized)) {
+            issues.push("Missing US ZIP code");
+            confidence -= 25;
+        }
+    } else if (inferredCountry === "GB") {
+        if (!/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i.test(normalized)) {
+            issues.push("Missing UK postcode");
+            confidence -= 25;
+        }
+    } else if (inferredCountry === "CA") {
+        if (!/\b[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z]\s*\d[ABCEGHJ-NPRSTV-Z]\d\b/i.test(normalized)) {
+            issues.push("Missing Canada postal code");
+            confidence -= 25;
+        }
+    } else {
+        // Generic expectations for a global address string
+        if (!/\d/.test(normalized)) {
+            issues.push("Address missing building/plot/street number");
+            confidence -= 15;
+        }
+        if (!/[,-]/.test(normalized)) {
+            issues.push("Address missing separators (comma/hyphen)");
+            confidence -= 10;
+        }
+    }
+
+    confidence = Math.max(0, Math.min(100, confidence));
+    return { inferredCountry, confidence, issues, normalized };
+}
+
 // --- 1. Security Gate (Deterministic) ---
 
 function validateInputSchema(data: any): SecurityCheckResult {
@@ -146,9 +262,12 @@ function validateInputSchema(data: any): SecurityCheckResult {
         reasons.push("NPI Format Invalid (Must be 10 digits)");
     }
 
-    // Zip '00000' Sabotage Check
-    if (data.address && data.address.includes("00000")) {
-        reasons.push("Security Block: Invalid Zip Code Pattern");
+    // Postal-code sabotage patterns
+    if (typeof data.address === 'string') {
+        const addr = data.address;
+        if (/\b00000\b/.test(addr) || /\b000000\b/.test(addr) || /\b0{5,6}\b/.test(addr)) {
+            reasons.push("Security Block: Invalid Postal Code Pattern");
+        }
     }
 
     // XSS/Injection Check
@@ -240,6 +359,18 @@ function calculateScore(input: any, evidence: VerifiedData): ScoringResult {
     let score = 100;
     const discrepancies: string[] = [];
     let isFatal = false;
+
+    // Address Structure Verification (world-aware)
+    const addressCheck = verifyPostalAddress(input.address || "");
+    if (addressCheck.issues.length > 0) {
+        discrepancies.push(...addressCheck.issues.map(i => `Address: ${i}`));
+    }
+    if (addressCheck.confidence < 80) {
+        // Penalize progressively; cap so it doesn't fully dominate scoring.
+        const penalty = Math.min(40, Math.round((80 - addressCheck.confidence) * 0.75));
+        score -= penalty;
+        discrepancies.push(`Address Quality Low (${addressCheck.confidence}%)`);
+    }
 
     // Trust Multiplier
     const trustMap: Record<ProvenanceType, number> = {
@@ -384,6 +515,22 @@ export async function runAgentWorkflow(providerId: string, providerData: any) {
             return;
         }
         dispatchLog("SECURITY", "Input passed security sanitization.", "success");
+
+        // Step 1b: Address Verification (World-aware, deterministic)
+        const addressCheck = verifyPostalAddress(providerData.address || "");
+        if (addressCheck.confidence >= 80) {
+            dispatchLog(
+                "VALIDATOR",
+                `Address verified (${addressCheck.inferredCountry || "GLOBAL"}) — ${addressCheck.confidence}% confidence`,
+                "success"
+            );
+        } else {
+            dispatchLog(
+                "VALIDATOR",
+                `Address needs review (${addressCheck.inferredCountry || "GLOBAL"}) — ${addressCheck.confidence}% confidence: ${addressCheck.issues.slice(0, 2).join("; ")}${addressCheck.issues.length > 2 ? "…" : ""}`,
+                "warning"
+            );
+        }
 
         // Step 2: Data Acquisition
         dispatchLog("ACQUISITION", "Fetching trusted registry evidence...", "info");
