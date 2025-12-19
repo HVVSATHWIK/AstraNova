@@ -26,7 +26,7 @@ async function callGeminiProxy(body: Record<string, unknown>): Promise<ProxyResp
     const data = (await res.json().catch(() => null)) as ProxyResponse | null;
     if (!data) {
         const hint = endpoint === DEFAULT_ENDPOINT
-            ? "Gemini proxy is not reachable. If you are using Firebase Hosting without Blaze, set VITE_GEMINI_PROXY_URL to a Vercel proxy (see README)."
+            ? "Gemini proxy is not reachable. Ensure the Vercel 'api' functions are deployed."
             : "Gemini proxy is not reachable. Check VITE_GEMINI_PROXY_URL.";
         return { ok: false, error: `Gemini proxy returned non-JSON response (${res.status}). ${hint}` };
     }
