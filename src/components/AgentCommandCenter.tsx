@@ -5,7 +5,7 @@ import { ShieldAlert, BookOpen, Award, Cpu, Activity, Terminal, CheckCircle2 } f
 interface LogEntry {
     id: string;
     timestamp: string;
-    agent: "ORCHESTRATOR" | "VALIDATOR" | "ENRICHMENT" | "QA";
+    agent: "ORCHESTRATOR" | "VALIDATOR" | "ACQUISITION" | "JUDGE" | "SECURITY" | "ENRICHMENT" | "QA" | "SYSTEM";
     message: string;
     level: "info" | "success" | "warning" | "error";
 }
@@ -26,12 +26,12 @@ export function AgentCommandCenter() {
             setTimeout(() => setGlitch(false), 200);
 
             // Update Visual Stage
-            if (customEvent.detail.message.includes("Security") || customEvent.detail.level === "error") {
+            if (agent === "SECURITY" || agent === "SYSTEM" || customEvent.detail.level === "error") {
                 setActiveStage("ALERT");
-            } else if (agent === "VALIDATOR") setActiveStage("SCAN");
+            } else if (agent === "VALIDATOR" || agent === "ACQUISITION") setActiveStage("SCAN");
+            else if (agent === "JUDGE" || agent === "QA") setActiveStage("AUDIT");
             else if (agent === "ENRICHMENT") setActiveStage("SYNTH");
-            else if (agent === "QA") setActiveStage("AUDIT");
-            else if (agent === "ORCHESTRATOR" && (customEvent.detail.message.includes("finished") || customEvent.detail.message.includes("Complete"))) setActiveStage("IDLE");
+            else if (agent === "ORCHESTRATOR" && (customEvent.detail.message.toLowerCase().includes("completed") || customEvent.detail.message.toLowerCase().includes("complete"))) setActiveStage("IDLE");
 
             // Update Logs
             const newLog = {
@@ -129,7 +129,7 @@ export function AgentCommandCenter() {
                     <div className="h-12 border-b border-white/10 flex items-center justify-between px-6 bg-white/5">
                         <div className="flex items-center gap-3">
                             <Terminal className="w-4 h-4 text-gray-400" />
-                            <span className="text-gray-300 font-medium">Neural_Link_Stream.dev</span>
+                            <span className="text-gray-300 font-medium">Agent Event Stream</span>
                         </div>
                         <div className="flex gap-2">
                             <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50" />
@@ -146,7 +146,7 @@ export function AgentCommandCenter() {
                         {logs.length === 0 && (
                             <div className="h-full flex flex-col items-center justify-center opacity-30 space-y-4">
                                 <Activity className="w-12 h-12 text-gray-500" />
-                                <p className="text-gray-500">Awaiting Neural Input...</p>
+                                <p className="text-gray-500">Waiting for workflow events…</p>
                             </div>
                         )}
 
@@ -160,6 +160,9 @@ export function AgentCommandCenter() {
                                         <span className={clsx(
                                             "text-xs font-bold px-1.5 py-0.5 rounded",
                                             log.agent === "VALIDATOR" ? "bg-blue-500/20 text-blue-400" :
+                                                log.agent === "ACQUISITION" ? "bg-sky-500/20 text-sky-300" :
+                                                    log.agent === "JUDGE" ? "bg-amber-500/20 text-amber-300" :
+                                                        log.agent === "SECURITY" || log.agent === "SYSTEM" ? "bg-red-500/20 text-red-300" :
                                                 log.agent === "ENRICHMENT" ? "bg-purple-500/20 text-purple-400" :
                                                     log.agent === "QA" ? "bg-emerald-500/20 text-emerald-400" :
                                                         "bg-indigo-500/20 text-indigo-400"

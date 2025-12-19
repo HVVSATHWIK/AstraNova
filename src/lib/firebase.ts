@@ -27,21 +27,26 @@ const firebaseConfig = {
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // 2. Initialize Auth with extreme robustness for Incognito/Restricted modes
-// 2. Initialize Auth with safe persistence fallback
+// 2. Initialize Auth with extreme robustness for Incognito/Restricted modes
 let authInstance;
 try {
-    // Try to get existing auth instance first to prevent "already initialized" errors during HMR
-    authInstance = getAuth(app);
-} catch (e) {
-    // If not initialized, create it with custom persistence
-    try {
-        authInstance = initializeAuth(app, {
-            persistence: [browserLocalPersistence, browserSessionPersistence, inMemoryPersistence]
-        });
-    } catch (innerError) {
-        // Fallback for strict environments (like some iframe/incognito modes)
-        console.warn("Auth persistence fallback enabled");
-        authInstance = initializeAuth(app, { persistence: inMemoryPersistence });
+    // Try to initialize with custom persistence first
+    authInstance = initializeAuth(app, {
+        persistence: [browserLocalPersistence, browserSessionPersistence, inMemoryPersistence]
+    });
+} catch (e: unknown) {
+    // If "failed-precondition" (already initialized), just get the instance
+    const err = e as { code?: string };
+    if (err.code === 'auth/already-initialized') {
+        authInstance = getAuth(app);
+    } else {
+        // Fallback for strict environments or other errors
+        console.warn("Auth persistence fallback enabled due to error", e);
+        try {
+            authInstance = initializeAuth(app, { persistence: inMemoryPersistence });
+        } catch {
+            authInstance = getAuth(app);
+        }
     }
 }
 export const auth = authInstance;
@@ -54,8 +59,12 @@ try {
     dbInstance = initializeFirestore(app, {
         localCache: memoryLocalCache()
     });
-} catch (error: any) {
-    if (error.code === 'failed-precondition') {
+    dbInstance = initializeFirestore(app, {
+        localCache: memoryLocalCache()
+    });
+} catch (error: unknown) {
+    const err = error as { code?: string };
+    if (err.code === 'failed-precondition') {
         // Already initialized (HMR), use existing
         dbInstance = getFirestore(app);
     } else {

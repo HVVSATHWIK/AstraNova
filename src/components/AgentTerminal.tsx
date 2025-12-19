@@ -4,7 +4,7 @@ import { Terminal } from "lucide-react";
 interface LogEntry {
     id: string;
     timestamp: string;
-    agent: "ORCHESTRATOR" | "VALIDATOR" | "ENRICHMENT" | "QA";
+    agent: "ORCHESTRATOR" | "VALIDATOR" | "ACQUISITION" | "JUDGE" | "SECURITY" | "ENRICHMENT" | "QA" | "SYSTEM";
     message: string;
     level: "info" | "success" | "warning" | "error";
 }
@@ -62,6 +62,9 @@ export function AgentTerminal() {
                         <span className="text-gray-600 shrink-0">[{log.timestamp}]</span>
                         <span className={`font-bold shrink-0 w-24 ${log.agent === 'ORCHESTRATOR' ? 'text-indigo-400' :
                             log.agent === 'VALIDATOR' ? 'text-blue-400' :
+                                log.agent === 'ACQUISITION' ? 'text-sky-300' :
+                                    log.agent === 'JUDGE' ? 'text-amber-300' :
+                                        log.agent === 'SECURITY' || log.agent === 'SYSTEM' ? 'text-red-300' :
                                 log.agent === 'ENRICHMENT' ? 'text-purple-400' :
                                     'text-green-400'
                             }`}>

@@ -23,7 +23,13 @@ interface AgentWorkflowState {
     };
     evidence?: {
         source: string;
-        details: any;
+        details: {
+            npi?: string;
+            name?: string;
+            address?: string;
+            specialties?: string[];
+            [key: string]: unknown;
+        };
     };
     scoring?: {
         identityScore: number;
@@ -412,6 +418,16 @@ export function ProviderTable() {
                                                                             <span className="text-[10px] text-green-500 uppercase font-bold block mb-1">Status</span>
                                                                             <p className="text-xs text-green-100 break-words">{p.scoring.finalStatus}</p>
                                                                         </div>
+
+                                                                        {p.scoring.finalStatus === 'UNVERIFIED' && (
+                                                                            <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                                                                                <span className="text-[10px] text-gray-500 uppercase font-bold block mb-1">Why this is unverified</span>
+                                                                                <p className="text-[11px] text-gray-300 leading-relaxed">
+                                                                                    We couldn’t confirm this record against a trusted registry. This usually happens when an NPI isn’t provided or registry evidence isn’t available.
+                                                                                    <span className="text-gray-400"> Tip:</span> add a 10-digit NPI and re-submit to enable registry verification.
+                                                                                </p>
+                                                                            </div>
+                                                                        )}
                                                                         <div className="pl-2 border-l border-white/10 space-y-1">
                                                                             {p.scoring.discrepancies?.map((log, i) => (
                                                                                 <div key={i} className="flex items-center gap-2 text-[10px] text-gray-400">

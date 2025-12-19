@@ -8,7 +8,7 @@ import { signOut } from "firebase/auth";
 import clsx from "clsx";
 import { ShieldCheck, Activity, Users, DollarSign, Clock, FileSpreadsheet, Printer, X, Briefcase, LayoutDashboard, HelpCircle } from "lucide-react";
 
-import { generateDirectoryReport } from "../lib/agentSystem";
+import { generateDirectoryReport, type ProviderDocument } from "../lib/agentSystem";
 
 const OPS_COST_PER_HOUR_INR = 750;
 const MANUAL_MINS_PER_PROVIDER = 15;
@@ -17,7 +17,7 @@ export function Dashboard() {
     const [metrics, setMetrics] = useState({ total: 0, avgConfidence: 0 });
     const [roi, setRoi] = useState({ hoursSaved: 0, moneySaved: 0 });
     const [showReport, setShowReport] = useState(false);
-    const [reportData, setReportData] = useState<any>(null);
+    const [reportData, setReportData] = useState<ReturnType<typeof generateDirectoryReport> | null>(null);
     const [role, setRole] = useState<'specialist' | 'director'>('specialist');
     const [showGuide, setShowGuide] = useState(false);
     const [reviewBeforeSubmit, setReviewBeforeSubmit] = useState(() => {
@@ -33,9 +33,9 @@ export function Dashboard() {
         // Simple listener for metrics (same as table, but we compute aggregates)
         const q = query(collection(db, "providers"), where("userId", "==", auth.currentUser.uid));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const docs = snapshot.docs.map(d => d.data());
+            const docs = snapshot.docs.map(d => d.data() as ProviderDocument);
             const total = docs.length;
-            const totalConf = docs.reduce((acc, curr: any) => acc + (curr.scoring?.identityScore || 0), 0);
+            const totalConf = docs.reduce((acc, curr) => acc + (curr.scoring?.identityScore || 0), 0);
             const avg = total > 0 ? Math.round(totalConf / total) : 0;
             setMetrics({ total, avgConfidence: avg });
 
@@ -52,13 +52,13 @@ export function Dashboard() {
     const handleExportCSV = async () => {
         try {
             const querySnapshot = await getDocs(collection(db, "providers"));
-            const data = querySnapshot.docs.map(doc => doc.data());
+            const data = querySnapshot.docs.map(doc => doc.data() as ProviderDocument);
 
             // CSV Header
             let csvContent = "data:text/csv;charset=utf-8,";
             csvContent += "NPI,Name,Address,Status,Confidence,Source,LastUpdated\n";
 
-            data.forEach((row: any) => {
+            data.forEach((row) => {
                 const rowData = [
                     row.npi,
                     `"${row.name}"`, // Quote strings with commas
@@ -338,7 +338,7 @@ export function Dashboard() {
                                             <h3 className="text-sm font-bold text-gray-800 mb-3">Top recurring issues</h3>
                                             {(reportData.top_issues?.length ?? 0) > 0 ? (
                                                 <div className="space-y-2">
-                                                    {reportData.top_issues.slice(0, 5).map((x: any, idx: number) => (
+                                                    {reportData.top_issues.slice(0, 5).map((x, idx) => (
                                                         <div key={idx} className="flex items-center justify-between gap-4">
                                                             <span className="text-xs text-gray-700 truncate" title={x.issue}>{x.issue}</span>
                                                             <span className="text-xs font-bold text-gray-900 bg-white border rounded px-2 py-0.5 shrink-0">{x.count}</span>
@@ -354,7 +354,7 @@ export function Dashboard() {
                                             <h3 className="text-sm font-bold text-gray-800 mb-3">Country distribution</h3>
                                             {(reportData.country_distribution?.length ?? 0) > 0 ? (
                                                 <div className="space-y-2">
-                                                    {reportData.country_distribution.slice(0, 8).map((x: any, idx: number) => (
+                                                    {reportData.country_distribution.slice(0, 8).map((x, idx) => (
                                                         <div key={idx} className="flex items-center justify-between gap-4">
                                                             <span className="text-xs text-gray-700 font-mono">{x.country}</span>
                                                             <span className="text-xs font-bold text-gray-900 bg-white border rounded px-2 py-0.5">{x.count}</span>
@@ -383,7 +383,7 @@ export function Dashboard() {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y">
-                                                {reportData.records.filter((r: any) => r.confidence < 80 || r.status !== 'Ready').slice(0, 50).map((record: any, i: number) => (
+                                                {reportData.records.filter((r) => r.confidence < 80 || r.status !== 'Ready').slice(0, 50).map((record, i) => (
                                                     <tr key={i} className="hover:bg-gray-50">
                                                         <td className="px-4 py-3 font-mono text-gray-500">{record.npi}</td>
                                                         <td className="px-4 py-3 font-medium text-gray-900">{record.name}</td>
@@ -396,7 +396,7 @@ export function Dashboard() {
                                                         <td className="px-4 py-3 text-right font-bold text-gray-700">{record.confidence}%</td>
                                                     </tr>
                                                 ))}
-                                                {reportData.records.filter((r: any) => r.confidence < 80 || r.status !== 'Ready').length === 0 && (
+                                                {reportData.records.filter((r) => r.confidence < 80 || r.status !== 'Ready').length === 0 && (
                                                     <tr>
                                                         <td colSpan={4} className="px-4 py-8 text-center text-gray-500 italic">No flagged providers found. Excellent data quality.</td>
                                                     </tr>
@@ -474,7 +474,7 @@ export function Dashboard() {
                                             onChange={(e) => {
                                                 const next = e.target.checked;
                                                 setReviewBeforeSubmit(next);
-                                                try { localStorage.setItem('astranova.reviewBeforeSubmit', String(next)); } catch { }
+                                                try { localStorage.setItem('astranova.reviewBeforeSubmit', String(next)); } catch { /* ignore */ }
                                             }}
                                             className="h-4 w-4"
                                         />

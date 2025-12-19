@@ -1,4 +1,4 @@
-import { model } from "./gemini";
+import { geminiEnrich, geminiGenerateText, geminiGenerateVision } from "./gemini";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -73,6 +73,16 @@ export interface AgentWorkflowState {
     lastUpdated: string;
 }
 
+export interface ProviderDocument extends Partial<AgentWorkflowState> {
+    npi?: string;
+    name?: string;
+    address?: string;
+    inputSource?: string;
+    userId?: string;
+    createdAt?: string;
+    specialties?: string[];
+}
+
 // --- Helpers ---
 
 // Simple Levenshtein Distance for fuzzy string matching
@@ -136,7 +146,7 @@ async function updateProviderState(providerId: string, updates: Partial<AgentWor
             ...updates,
             lastUpdated: new Date().toISOString()
         });
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error("DB Write Error:", e);
         const msg = e instanceof Error ? e.message : String(e);
         dispatchLog("SYSTEM", "DB Write Error: " + msg, "error");
@@ -309,7 +319,7 @@ export function verifyPostalAddress(address: string): AddressVerificationResult 
 
 // --- 1. Security Gate (Deterministic) ---
 
-function validateInputSchema(data: any): SecurityCheckResult {
+function validateInputSchema(data: ProviderDocument): SecurityCheckResult {
     const reasons: string[] = [];
 
     // Postal-code sabotage patterns
@@ -333,7 +343,7 @@ function validateInputSchema(data: any): SecurityCheckResult {
 
 // --- 2. Data Acquisition (Provenance-Aware) ---
 
-async function fetchRegistryData(input: any): Promise<VerifiedData> {
+async function fetchRegistryData(input: ProviderDocument): Promise<VerifiedData> {
     // In a real system, this would call NPPES API.
     // We simulate API behavior here with strict provenance tagging.
 
@@ -342,7 +352,7 @@ async function fetchRegistryData(input: any): Promise<VerifiedData> {
     if (!isValidNpi(input?.npi)) {
         dispatchLog(
             "ACQUISITION",
-            "No valid registry ID provided (NPI). Skipping external lookup; marking as USER_INPUT.",
+            "No valid NPI provided. External registry lookup skipped; proceeding with user-provided details only.",
             "warning"
         );
         return {
@@ -399,13 +409,16 @@ async function fetchRegistryData(input: any): Promise<VerifiedData> {
 
     if (isOffline) {
         // FALLBACK: We return SIMULATION source. Trust will be 0.
-        dispatchLog("ACQUISITION", "External Registry API Unavailable. Switching to Heuristic Fallback.", "warning");
+        dispatchLog("ACQUISITION", "Registry service unavailable. Using a fallback evidence source.", "warning");
         return {
             source: 'SIMULATION',
             timestamp: Date.now(),
             details: {
-                ...input, // Echo input (Provenance ensures this isn't trusted)
-                license_status: 'NOT_FOUND'
+                npi: input.npi || "",
+                name: input.name || "",
+                address: input.address || "",
+                license_status: 'NOT_FOUND',
+                specialties: input.specialties || []
             }
         };
     }
@@ -415,9 +428,9 @@ async function fetchRegistryData(input: any): Promise<VerifiedData> {
         source: 'LIVE_API',
         timestamp: Date.now(),
         details: {
-            npi: input.npi,
-            name: input.name, // Simulate match
-            address: input.address, // Simulate match
+            npi: input.npi || "",
+            name: input.name || "", // Simulate match
+            address: input.address || "", // Simulate match
             license_status: 'ACTIVE',
             specialties: ["General Practice"]
         }
@@ -426,7 +439,7 @@ async function fetchRegistryData(input: any): Promise<VerifiedData> {
 
 // --- 3. Unified Scoring (Deterministic) ---
 
-function calculateScore(input: any, evidence: VerifiedData, addressCheck?: AddressVerificationResult): ScoringResult {
+function calculateScore(input: ProviderDocument, evidence: VerifiedData, addressCheck?: AddressVerificationResult): ScoringResult {
     let score = 100;
     const discrepancies: string[] = [];
     let isFatal = false;
@@ -471,7 +484,7 @@ function calculateScore(input: any, evidence: VerifiedData, addressCheck?: Addre
     }
 
     // 2. Address Verification (Fuzzy)
-    const addrSimilarity = getSimilarityScore(input.address, evidence.details.address);
+    const addrSimilarity = getSimilarityScore(input.address || "", evidence.details.address);
     if (addrSimilarity < 0.8) {
         const penalty = Math.round((0.8 - addrSimilarity) * 100); // Scale penalty
         score -= penalty;
@@ -479,7 +492,7 @@ function calculateScore(input: any, evidence: VerifiedData, addressCheck?: Addre
     }
 
     // 3. Name Verification (Fuzzy)
-    const nameSimilarity = getSimilarityScore(input.name, evidence.details.name);
+    const nameSimilarity = getSimilarityScore(input.name || "", evidence.details.name);
     if (nameSimilarity < 0.8) {
         score -= 20;
         discrepancies.push("Name Mismatch (" + Math.round(nameSimilarity * 100) + "% match)");
@@ -497,7 +510,13 @@ function calculateScore(input: any, evidence: VerifiedData, addressCheck?: Addre
     } else if (trustLevel < 0.5) {
         // If we don't trust the data, we can't verify or flag. It's just Unverified.
         finalStatus = 'UNVERIFIED';
-        discrepancies.push("Source data insufficient for verification.");
+        if (!isValidNpi(input?.npi)) {
+            discrepancies.push("Unverified: no valid NPI provided. Add a 10-digit NPI to enable registry verification.");
+        } else if (evidence.source === 'SIMULATION') {
+            discrepancies.push("Unverified: registry evidence unavailable at the time of validation. Try again later.");
+        } else {
+            discrepancies.push("Unverified: no trusted registry evidence available for verification.");
+        }
     } else if (finalScore < 80) {
         finalStatus = 'FLAGGED';
     }
@@ -513,7 +532,7 @@ function calculateScore(input: any, evidence: VerifiedData, addressCheck?: Addre
 
 // --- 4. Enrichment (LLM - Display Only) ---
 
-async function runEnrichment(data: any): Promise<EnrichmentData> {
+async function runEnrichment(data: VerifiedData['details']): Promise<EnrichmentData> {
     try {
         const prompt = "Role: Medical Data Summarizer\n" +
             "Task: Generate a professional bio and education summary based ONLY on the provided verified data blocks.\n" +
@@ -528,14 +547,17 @@ async function runEnrichment(data: any): Promise<EnrichmentData> {
             '  "education_summary": "Inferred likely medical background..." \n' +
             "}";
 
-        const result = await model.generateContent(prompt);
-        const json = extractJSON(result.response.text());
+        const result = await geminiEnrich(prompt);
+        if (!result.ok) {
+            throw new Error(result.error || "Gemini enrichment failed");
+        }
+        const json = extractJSON(result.text || "");
         return {
             bio: json?.bio || "Bio unavailable.",
             education_summary: json?.education_summary || "Education data unavailable.",
             generated_at: new Date().toISOString()
         };
-    } catch (e) {
+    } catch {
         return { bio: "Bio unavailable (Service Error)", education_summary: "", generated_at: new Date().toISOString() };
     }
 }
@@ -557,16 +579,12 @@ export async function extractDataFromDocument(base64Image: string): Promise<Extr
             "- If a field is not present, return empty string for that field.\n" +
             "- Do NOT add extra keys. Return only valid JSON.";
 
-        const imagePart = {
-            inlineData: {
-                data: base64Image,
-                mimeType: "image/png" // Assuming PNG/JPEG for simplicity
-            }
-        };
-
-        const result = await model.generateContent([prompt, imagePart]);
-        const text = result.response.text();
-        const json = extractJSON(text);
+        const result = await geminiGenerateVision(prompt, base64Image, "image/png");
+        if (!result.ok) {
+            console.error("Vision Extraction Failed", result.error || "Gemini vision request failed");
+            return null;
+        }
+        const json = extractJSON(result.text || "");
 
         if (!json) return null;
 
@@ -595,8 +613,12 @@ export async function extractDataFromText(text: string): Promise<ExtractedProvid
             "Input text:\n" +
             text;
 
-        const result = await model.generateContent(prompt);
-        const json = extractJSON(result.response.text());
+        const result = await geminiGenerateText(prompt);
+        if (!result.ok) {
+            console.error("Text Extraction Failed", result.error || "Gemini text request failed");
+            return null;
+        }
+        const json = extractJSON(result.text || "");
         if (!json) return null;
 
         return {
@@ -613,19 +635,19 @@ export async function extractDataFromText(text: string): Promise<ExtractedProvid
 
 // --- 5. Main Orchestrator ---
 
-export async function runAgentWorkflow(providerId: string, providerData: any) {
+export async function runAgentWorkflow(providerId: string, providerData: ProviderDocument) {
     try {
         const inputSource = typeof providerData?.inputSource === 'string' ? providerData.inputSource : null;
-        dispatchLog("ORCHESTRATOR", "Initializing Gatekeeper Workflow...", "info");
+        dispatchLog("ORCHESTRATOR", "Starting provider validation workflow…", "info");
         if (inputSource) {
-            dispatchLog("ORCHESTRATOR", `Input captured via: ${inputSource}`, "info");
+            dispatchLog("ORCHESTRATOR", `Input source: ${inputSource}`, "info");
         }
         await updateProviderState(providerId, { status: "Processing" });
 
         // Step 1: Security Gate
         const securityCheck = validateInputSchema(providerData);
         if (!securityCheck.passed) {
-            dispatchLog("SECURITY", "Blocked: " + securityCheck.reasons.join(", "), "error");
+            dispatchLog("SECURITY", "Blocked by security checks: " + securityCheck.reasons.join(", "), "error");
 
             const addressCheck = verifyPostalAddress(providerData.address || "");
             await updateProviderState(providerId, {
@@ -636,49 +658,56 @@ export async function runAgentWorkflow(providerId: string, providerData: any) {
             });
             return;
         }
-        dispatchLog("SECURITY", "Input passed security sanitization.", "success");
+        dispatchLog("SECURITY", "Security checks passed.", "success");
 
         // Step 1b: Address Verification (World-aware, deterministic)
         const addressCheck = verifyPostalAddress(providerData.address || "");
         if (addressCheck.confidence >= 80) {
             dispatchLog(
                 "VALIDATOR",
-                `Address verified (${addressCheck.inferredCountry || "GLOBAL"}) — ${addressCheck.confidence}% confidence`,
+                `Address validated (${addressCheck.inferredCountry || "GLOBAL"}) — ${addressCheck.confidence}% confidence`,
                 "success"
             );
         } else {
             dispatchLog(
                 "VALIDATOR",
-                `Address needs review (${addressCheck.inferredCountry || "GLOBAL"}) — ${addressCheck.confidence}% confidence: ${addressCheck.issues.slice(0, 2).join("; ")}${addressCheck.issues.length > 2 ? "…" : ""}`,
+                `Address needs review (${addressCheck.inferredCountry || "GLOBAL"}) — ${addressCheck.confidence}% confidence. Issues: ${addressCheck.issues.slice(0, 2).join("; ")}${addressCheck.issues.length > 2 ? "…" : ""}`,
                 "warning"
             );
         }
 
         // Step 2: Data Acquisition
-        dispatchLog("ACQUISITION", "Fetching trusted registry evidence...", "info");
+        dispatchLog("ACQUISITION", "Collecting registry evidence…", "info");
         const evidence = await fetchRegistryData(providerData);
 
         if (evidence.source !== 'LIVE_API') {
-            dispatchLog("ACQUISITION", "Using fallback source: " + evidence.source + " (Trust: " + (evidence.source === 'SIMULATION' ? '0%' : 'Low') + ")", "warning");
+            if (evidence.source === 'USER_INPUT') {
+                dispatchLog("ACQUISITION", "No registry lookup performed (missing/invalid NPI).", "warning");
+            } else if (evidence.source === 'SIMULATION') {
+                dispatchLog("ACQUISITION", "Registry evidence unavailable; using a fallback evidence source.", "warning");
+            } else {
+                dispatchLog("ACQUISITION", `Evidence source: ${evidence.source} (not independently verified)`, "warning");
+            }
         } else {
-            dispatchLog("ACQUISITION", "Registry data acquired via Live API.", "success");
+            dispatchLog("ACQUISITION", "Registry match found (live).", "success");
         }
 
         // Step 3: Scoring
-        dispatchLog("JUDGE", "Calculating Identity Score & Trust Levels...", "info");
+        dispatchLog("JUDGE", "Computing identity score and trust level…", "info");
         const scoring = calculateScore(providerData, evidence, addressCheck);
 
         let logType: "info" | "success" | "warning" | "error" = "info";
         if (scoring.finalStatus === 'VERIFIED') logType = "success";
         else if (scoring.finalStatus === 'FLAGGED') logType = "warning";
-        else logType = "error";
+        else if (scoring.finalStatus === 'BLOCKED') logType = "error";
+        else logType = "warning"; // UNVERIFIED is actionable, not a failure
 
-        dispatchLog("JUDGE", "Status: " + scoring.finalStatus + " (Score: " + scoring.identityScore + "/100)", logType);
+        dispatchLog("JUDGE", `Result: ${scoring.finalStatus} (Score: ${scoring.identityScore}/100)`, logType);
 
         // Step 4: Enrichment (Optional - Only for Verified/Flagged)
-        let enrichment: any = null;
+        let enrichment: EnrichmentData | undefined;
         if (scoring.finalStatus === 'VERIFIED' || scoring.finalStatus === 'FLAGGED') {
-            dispatchLog("ENRICHMENT", "Generating display metadata...", "info");
+            dispatchLog("ENRICHMENT", "Generating provider summary…", "info");
             enrichment = await runEnrichment(evidence.details); // Use verified details
         }
 
@@ -695,9 +724,9 @@ export async function runAgentWorkflow(providerId: string, providerData: any) {
             auditLog: scoring.discrepancies // Simple audit log for now
         });
 
-        dispatchLog("ORCHESTRATOR", "Workflow Complete: " + scoring.finalStatus, "success");
+        dispatchLog("ORCHESTRATOR", `Workflow completed: ${scoring.finalStatus}`, "success");
 
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error("Workflow Crash", e);
         dispatchLog("SYSTEM", "Critical System Failure: " + (e instanceof Error ? e.message : String(e)), "error");
         await updateProviderState(providerId, { status: "Unverified" });
@@ -707,7 +736,7 @@ export async function runAgentWorkflow(providerId: string, providerData: any) {
 /**
  * Helper to generate reports (Client-side trigger)
  */
-export function generateDirectoryReport(providers: any[]) {
+export function generateDirectoryReport(providers: ProviderDocument[]) {
     // Dispatch log for visibility
     dispatchLog("ORCHESTRATOR", "Directory Manager: Generating Batch Report...", "info");
 
@@ -739,12 +768,12 @@ export function generateDirectoryReport(providers: any[]) {
     const report = {
         timestamp: new Date().toISOString(),
         total_providers: providers.length,
-        verified_count: providers.filter((p: any) => p.status === "Ready").length,
-        flagged_count: providers.filter((p: any) => p.status === "Flagged").length,
-        avg_confidence: providers.reduce((acc: number, p: any) => acc + (p.scoring?.identityScore || 0), 0) / (providers.length || 1),
+        verified_count: providers.filter((p) => p.status === "Ready").length,
+        flagged_count: providers.filter((p) => p.status === "Flagged").length,
+        avg_confidence: providers.reduce((acc, p) => acc + (p.scoring?.identityScore || 0), 0) / (providers.length || 1),
         top_issues,
         country_distribution,
-        records: providers.map((p: any) => ({
+        records: providers.map((p) => ({
             npi: p.npi,
             name: p.name,
             status: p.status,

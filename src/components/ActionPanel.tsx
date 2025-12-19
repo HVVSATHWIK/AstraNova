@@ -2,7 +2,7 @@ import { useState } from "react";
 import { collection, addDoc } from "firebase/firestore";
 import { db, auth } from "../lib/firebase";
 import { runAgentWorkflow, extractDataFromDocument, extractDataFromText } from "../lib/agentSystem";
-import { UserPlus, Sparkles, Database, FileText, Upload, Scan } from "lucide-react";
+import { UserPlus, Sparkles, Database, FileText, Upload, Scan, FileSpreadsheet } from "lucide-react";
 import clsx from "clsx";
 
 type CsvProviderRow = {
@@ -359,46 +359,122 @@ export function ActionPanel() {
 
             {/* Manual Form */}
             {activeTab === 'form' && (
-                <form onSubmit={handleSubmit} className="space-y-4 relative z-10 animate-in fade-in slide-in-from-right-4 duration-300">
-                    <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                            <label className="text-[10px] text-gray-400">Import CSV (prefills form)</label>
+                <form onSubmit={handleSubmit} className="space-y-5 relative z-10 animate-in fade-in slide-in-from-right-4 duration-300">
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-semibold text-gray-200">Import dataset</span>
+                                    <span className="text-[10px] text-gray-500">(prefills this form)</span>
+                                </div>
+                                <a
+                                    href="/providers.csv"
+                                    download
+                                    className="text-[11px] text-indigo-300/80 hover:text-indigo-200 underline underline-offset-2"
+                                    title="Download sample providers.csv"
+                                >
+                                    Download sample providers.csv
+                                </a>
+                            </div>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <input
+                                id="csv-upload"
                                 type="file"
                                 accept=".csv,text/csv"
                                 onChange={(e) => handleCsvImport(e.target.files)}
-                                className="block w-[200px] text-[10px] text-gray-400 file:mr-2 file:rounded-md file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-[10px] file:font-semibold file:text-gray-200 hover:file:bg-white/20"
+                                className="hidden"
                             />
+                            <label
+                                htmlFor="csv-upload"
+                                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[12px] font-semibold text-gray-200 hover:bg-white/5 transition-colors cursor-pointer"
+                            >
+                                <FileSpreadsheet className="h-4 w-4" />
+                                Choose CSV
+                            </label>
+
+                            <button
+                                onClick={fillDemoData}
+                                type="button"
+                                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[12px] font-semibold text-gray-200 hover:bg-white/5 transition-colors"
+                            >
+                                <Database className="h-4 w-4" />
+                                Demo Fill
+                            </button>
                         </div>
-                        <button
-                            onClick={fillDemoData}
-                            type="button"
-                            className="text-[10px] flex items-center gap-1 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1 rounded-md transition-colors"
-                        >
-                            <Database className="h-3 w-3" />
-                            Demo Fill
-                        </button>
+
+                        {csvError && (
+                            <div className="mt-3 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3">
+                                <p className="text-[11px] text-rose-200/80">{csvError}</p>
+                            </div>
+                        )}
+
+                        {csvProviders.length > 0 && (
+                            <div className="mt-3 rounded-lg border border-white/10 bg-black/30 p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <label className="text-[11px] text-gray-300 font-semibold">Pick a row</label>
+                                    <div className="text-[10px] text-gray-500">{csvProviders.length} rows</div>
+                                </div>
+                                <select
+                                    value={csvSelectedIndex}
+                                    onChange={(e) => {
+                                        const idx = Number(e.target.value);
+                                        setCsvSelectedIndex(idx);
+                                        const selected = csvProviders[idx];
+                                        if (!selected) return;
+                                        if (selected.npi) setNpi(selected.npi);
+                                        if (selected.name) setName(selected.name);
+                                        if (selected.address) setAddress(selected.address);
+                                        setInputSource("CSV");
+                                    }}
+                                    className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-gray-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                >
+                                    <option value={-1}>Choose a provider…</option>
+                                    {csvProviders.map((p, idx) => (
+                                        <option key={idx} value={idx}>
+                                            {(p.name || "(Unnamed)") + (p.npi ? ` — ${p.npi}` : "")}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="mt-2 text-[10px] text-gray-500">
+                                    Prefills one row at a time. Review the fields, then click <span className="text-gray-300">Validate & Add</span>.
+                                </p>
+                            </div>
+                        )}
                     </div>
 
-                    <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                        <p className="text-[10px] text-gray-400 font-semibold mb-1">Common input types in real workflows</p>
-                        <div className="text-[10px] text-gray-500 leading-relaxed">
-                            <div><span className="text-gray-300">Manual:</span> type or copy/paste from email, WhatsApp, Teams, or a website.</div>
-                            <div><span className="text-gray-300">Paste text:</span> paste a messy message/row and extract fields.</div>
-                            <div><span className="text-gray-300">CSV:</span> import a dataset and pick one row to validate.</div>
-                            <div><span className="text-gray-300">Scan:</span> upload a clear photo/screenshot of a card/form (PDFs: use screenshot/paste).</div>
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                        <p className="text-xs text-gray-200 font-semibold">Inputs you’ll see in real workflows</p>
+                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-gray-500 leading-relaxed">
+                            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                                <div className="text-[11px] text-gray-200 font-semibold">Manual</div>
+                                <div className="text-[11px]">Type or copy/paste from a website or message.</div>
+                            </div>
+                            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                                <div className="text-[11px] text-gray-200 font-semibold">Paste text</div>
+                                <div className="text-[11px]">Paste a messy note and extract fields.</div>
+                            </div>
+                            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                                <div className="text-[11px] text-gray-200 font-semibold">CSV</div>
+                                <div className="text-[11px]">Import a dataset and validate one row.</div>
+                            </div>
+                            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                                <div className="text-[11px] text-gray-200 font-semibold">Scan</div>
+                                <div className="text-[11px]">Upload a clear photo/screenshot (PDF: screenshot/paste).</div>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                         <div className="flex items-center justify-between gap-3">
-                            <label className="text-[10px] text-gray-400 font-semibold">Paste from email/WhatsApp/Teams (optional)</label>
+                            <label className="text-xs text-gray-200 font-semibold">Paste a message (optional)</label>
                             <button
                                 type="button"
                                 disabled={pasteLoading || !pasteText.trim()}
                                 onClick={handlePasteExtract}
                                 className={clsx(
-                                    "text-[10px] font-semibold px-2 py-1 rounded-md transition-colors",
+                                    "text-[11px] font-semibold px-3 py-1.5 rounded-md transition-colors",
                                     pasteLoading || !pasteText.trim()
                                         ? "bg-white/5 text-gray-600"
                                         : "bg-indigo-600 text-white hover:bg-indigo-700"
@@ -419,76 +495,37 @@ export function ActionPanel() {
                         )}
                     </div>
 
-                    {csvProviders.length > 0 && (
-                        <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                            <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-2">
-                                    <label className="text-[10px] text-gray-400">Select row</label>
-                                    <select
-                                        value={csvSelectedIndex}
-                                        onChange={(e) => {
-                                            const idx = Number(e.target.value);
-                                            setCsvSelectedIndex(idx);
-                                            const selected = csvProviders[idx];
-                                            if (!selected) return;
-                                            if (selected.npi) setNpi(selected.npi);
-                                            if (selected.name) setName(selected.name);
-                                            if (selected.address) setAddress(selected.address);
-                                            setInputSource("CSV");
-                                        }}
-                                        className="rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-gray-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                    >
-                                        <option value={-1}>Choose a provider…</option>
-                                        {csvProviders.map((p, idx) => (
-                                            <option key={idx} value={idx}>
-                                                {(p.name || "(Unnamed)") + (p.npi ? ` — ${p.npi}` : "")}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="text-[10px] text-gray-500">Loaded {csvProviders.length} rows</div>
-                            </div>
-                            <p className="text-[10px] text-gray-500 mt-2">
-                                Tip: We only prefill one row at a time. Review and click <span className="text-gray-300">Validate & Add</span>.
-                            </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="mb-1 block text-sm font-medium text-gray-400">Provider ID (NPI if available)</label>
+                            <input
+                                type="text"
+                                value={npi}
+                                onChange={(e) => { setNpi(e.target.value); setInputSource("MANUAL"); }}
+                                placeholder="Optional (US NPI: 10 digits)"
+                                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
+                            />
                         </div>
-                    )}
 
-                    {csvError && (
-                        <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 p-3">
-                            <p className="text-[10px] text-rose-200/80">{csvError}</p>
+                        <div>
+                            <label className="mb-1 block text-sm font-medium text-gray-400">Provider Name</label>
+                            <input
+                                type="text"
+                                value={name}
+                                onChange={(e) => { setName(e.target.value); setInputSource("MANUAL"); }}
+                                placeholder="e.g. Dr. Jane Doe"
+                                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
+                            />
                         </div>
-                    )}
-
-                    <div>
-                        <label className="mb-1 block text-sm font-medium text-gray-400">Provider ID (NPI if available)</label>
-                        <input
-                            type="text"
-                            value={npi}
-                            onChange={(e) => { setNpi(e.target.value); setInputSource("MANUAL"); }}
-                            placeholder="Optional (US NPI: 10 digits)"
-                            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
-                        />
-                    </div>
-
-                    <div>
-                        <label className="mb-1 block text-sm font-medium text-gray-400">Provider Name</label>
-                        <input
-                            type="text"
-                            value={name}
-                            onChange={(e) => { setName(e.target.value); setInputSource("MANUAL"); }}
-                            placeholder="e.g. Dr. Jane Doe"
-                            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
-                        />
                     </div>
 
                     <div>
                         <label className="mb-1 block text-sm font-medium text-gray-400">Address</label>
-                        <input
-                            type="text"
+                        <textarea
                             value={address}
                             onChange={(e) => { setAddress(e.target.value); setInputSource("MANUAL"); }}
                             placeholder="e.g. 2nd Floor, Aster Clinic, MG Road, Bengaluru, Karnataka 560001, India"
+                            rows={3}
                             className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
                         />
                         <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">

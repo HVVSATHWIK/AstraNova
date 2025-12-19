@@ -62,8 +62,10 @@ Leverages specific model targeting for **Gemini 2.5 Flash-Lite**, optimizing for
     VITE_FIREBASE_API_KEY=your_key_here
     VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
     VITE_FIREBASE_PROJECT_ID=your_project_id
-    VITE_GEMINI_API_KEY=your_gemini_key_here
     ```
+
+    Gemini is called via a Firebase Cloud Function proxy (so no Gemini key is shipped to the browser).
+    You do **not** need a `VITE_GEMINI_API_KEY`.
 
 4.  **Run Development Server**
     ```bash
@@ -92,7 +94,6 @@ This project is optimized for deployment on Vercel.
         *   `VITE_FIREBASE_API_KEY`
         *   `VITE_FIREBASE_AUTH_DOMAIN`
         *   `VITE_FIREBASE_PROJECT_ID`
-        *   `VITE_GEMINI_API_KEY`
     *   *Copy the values from your local `.env` file.*
 4.  **Deploy**: Click "Deploy". Vercel will detect Vite and build automatically.
 
@@ -113,6 +114,32 @@ This project is optimized for deployment on Vercel.
     firebase login
     firebase deploy
     ```
+
+## 🤖 Gemini Setup (Required for Scan / Paste Extraction)
+
+Gemini is intentionally called server-side via a proxy endpoint so the API key is never shipped to the browser.
+
+### Option A (Recommended): Vercel API proxy (works on free tier)
+
+This repo includes a Vercel Serverless Function at `/api/gemini`.
+
+1. Deploy the repo to Vercel.
+2. In Vercel Project Settings → Environment Variables, set:
+    - `GEMINI_API_KEY` (your *new* Gemini key)
+3. In your local `.env` (used when building for Firebase Hosting), set:
+    ```env
+    VITE_GEMINI_PROXY_URL=https://YOUR_VERCEL_APP.vercel.app/api/gemini
+    ```
+
+### Option B: Firebase Cloud Functions proxy (requires Blaze plan)
+
+Firebase Functions require the Blaze plan to enable Cloud Functions/Build/Artifact Registry APIs.
+If you're on Blaze:
+
+1. `firebase functions:secrets:set GEMINI_API_KEY`
+2. `firebase deploy --only functions`
+
+Then you can omit `VITE_GEMINI_PROXY_URL` and use the default `/api/gemini` route.
 
 ## 📄 License
 

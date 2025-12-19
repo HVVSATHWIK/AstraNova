@@ -16,9 +16,10 @@ export function LoginPage() {
         setError(null);
         try {
             await signInWithPopup(auth, googleProvider);
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error("Google Login Error:", err);
-            setError(err.message || "Failed to sign in with Google");
+            const msg = err instanceof Error ? err.message : "Failed to sign in with Google";
+            setError(msg);
         } finally {
             setLoading(false);
         }
@@ -34,9 +35,10 @@ export function LoginPage() {
             } else {
                 await signInWithEmailAndPassword(auth, email, password);
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error("Email Auth Error:", err);
-            setError(err.message || `Failed to ${isSignUp ? 'sign up' : 'sign in'}`);
+            const msg = err instanceof Error ? err.message : `Failed to ${isSignUp ? 'sign up' : 'sign in'}`;
+            setError(msg);
         } finally {
             setLoading(false);
         }
