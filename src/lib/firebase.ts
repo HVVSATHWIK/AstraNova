@@ -15,7 +15,7 @@ import {
 
 const firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_TOKEN,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    authDomain: import.meta.env.VITE_FIREBASE_A_DOMAIN,
     projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
     storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
