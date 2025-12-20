@@ -402,7 +402,7 @@ export function ActionPanel() {
                         <div className="flex items-center justify-between">
                             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Manual Entry</h3>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 gap-4">
                             <div>
                                 <label className="mb-1.5 block text-xs font-semibold text-gray-400 uppercase tracking-wider">Provider ID</label>
                                 <input
