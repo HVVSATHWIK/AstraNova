@@ -337,66 +337,59 @@ export function ActionPanel() {
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
             {/* Header */}
-            <div className="mb-6 flex items-center justify-between relative z-10">
-                <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 shadow-inner">
-                        <UserPlus className="h-5 w-5" />
-                    </div>
-                    <div>
-                        <h2 className="text-lg font-bold text-gray-100">Add Provider</h2>
-                        <p className="text-xs text-gray-500 font-medium">Select an input method to begin</p>
-                    </div>
+            <div className="mb-6 flex items-center gap-3 relative z-10">
+                <div className="h-8 w-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 shadow-inner">
+                    <UserPlus className="h-4 w-4" />
                 </div>
-                <button
-                    onClick={fillDemoData}
-                    className="text-[10px] font-medium text-indigo-300 hover:text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded border border-indigo-500/20 transition-colors flex items-center gap-1"
-                >
-                    <Database className="h-3 w-3" />
-                    Demo Fill
-                </button>
+                <h2 className="text-base font-bold text-gray-100">Add Provider</h2>
             </div>
 
-            {/* Premium Tabs */}
-            <div className="grid grid-cols-4 gap-1 bg-black/40 p-1 rounded-lg mb-6 relative z-10">
+            {/* Icon-Only Tabs (Best for narrow sidebars) */}
+            <div className="flex items-center justify-between bg-black/40 p-1.5 rounded-xl mb-6 relative z-10">
                 <button
                     onClick={() => setActiveTab('form')}
                     className={clsx(
-                        "py-2 text-[11px] font-semibold rounded-md transition-all flex flex-col items-center justify-center gap-1",
+                        "h-9 w-12 rounded-lg transition-all flex items-center justify-center relative group/btn",
                         activeTab === 'form' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white hover:bg-white/5"
                     )}
+                    title="Manual Entry"
                 >
                     <FileText className="h-4 w-4" />
-                    Manual
+                    {activeTab === 'form' && <div className="absolute -bottom-8 px-2 py-1 bg-gray-900 text-white text-[10px] rounded opacity-0 group-hover/btn:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">Manual</div>}
                 </button>
                 <button
                     onClick={() => setActiveTab('paste')}
                     className={clsx(
-                        "py-2 text-[11px] font-semibold rounded-md transition-all flex flex-col items-center justify-center gap-1",
+                        "h-9 w-12 rounded-lg transition-all flex items-center justify-center relative group/btn",
                         activeTab === 'paste' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white hover:bg-white/5"
                     )}
+                    title="Paste Text"
                 >
-                    <FileText className="h-4 w-4" /> {/* Fallback icon if Clipboard not avail, using FileText representing Text */}
-                    Paste Text
+                    <FileText className="h-4 w-4" />
+                    <span className="absolute top-2 right-3 h-1.5 w-1.5 rounded-full bg-indigo-300"></span>
+                    {activeTab === 'paste' && <div className="absolute -bottom-8 px-2 py-1 bg-gray-900 text-white text-[10px] rounded opacity-0 group-hover/btn:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">Paste</div>}
                 </button>
                 <button
                     onClick={() => setActiveTab('csv')}
                     className={clsx(
-                        "py-2 text-[11px] font-semibold rounded-md transition-all flex flex-col items-center justify-center gap-1",
+                        "h-9 w-12 rounded-lg transition-all flex items-center justify-center relative group/btn",
                         activeTab === 'csv' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white hover:bg-white/5"
                     )}
+                    title="CSV Import"
                 >
                     <FileSpreadsheet className="h-4 w-4" />
-                    CSV Import
+                    {activeTab === 'csv' && <div className="absolute -bottom-8 px-2 py-1 bg-gray-900 text-white text-[10px] rounded opacity-0 group-hover/btn:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">CSV</div>}
                 </button>
                 <button
                     onClick={() => setActiveTab('upload')}
                     className={clsx(
-                        "py-2 text-[11px] font-semibold rounded-md transition-all flex flex-col items-center justify-center gap-1",
+                        "h-9 w-12 rounded-lg transition-all flex items-center justify-center relative group/btn",
                         activeTab === 'upload' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white hover:bg-white/5"
                     )}
+                    title="Scan Document"
                 >
                     <Scan className="h-4 w-4" />
-                    Scan
+                    {activeTab === 'upload' && <div className="absolute -bottom-8 px-2 py-1 bg-gray-900 text-white text-[10px] rounded opacity-0 group-hover/btn:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">Scan</div>}
                 </button>
             </div>
 
@@ -406,6 +399,9 @@ export function ActionPanel() {
                 {/* 1. MANUAL TAB */}
                 {activeTab === 'form' && (
                     <form onSubmit={handleSubmit} className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Manual Entry</h3>
+                        </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label className="mb-1.5 block text-xs font-semibold text-gray-400 uppercase tracking-wider">Provider ID</label>
@@ -443,12 +439,20 @@ export function ActionPanel() {
                             </p>
                         </div>
 
-                        <div className="pt-2">
+                        <div className="pt-2 flex gap-3">
+                            <button
+                                type="button"
+                                onClick={fillDemoData}
+                                className="px-3 py-3 rounded-lg bg-white/5 border border-white/10 text-indigo-300 hover:bg-white/10 hover:text-indigo-200 transition-colors"
+                                title="Auto-fill Demo Data"
+                            >
+                                <Database className="h-4 w-4" />
+                            </button>
                             <button
                                 type="submit"
                                 disabled={loading}
                                 className={clsx(
-                                    "flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 text-sm font-bold text-white transition-all hover:shadow-lg hover:shadow-indigo-500/25 active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
+                                    "flex-1 flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 text-sm font-bold text-white transition-all hover:shadow-lg hover:shadow-indigo-500/25 active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
                                 )}
                             >
                                 {loading ? (
@@ -459,7 +463,7 @@ export function ActionPanel() {
                                 ) : (
                                     <>
                                         <Sparkles className="h-4 w-4" />
-                                        Validate & Add Provider
+                                        Validate & Add
                                     </>
                                 )}
                             </button>
