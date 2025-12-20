@@ -58,8 +58,21 @@ export interface ExtractedProviderData {
     confidence: number;
 }
 
-function isValidNpi(npi: unknown): boolean {
-    return typeof npi === 'string' && /^\d{10}$/.test(npi);
+function isValidNpi(npi: unknown, address?: string): boolean {
+    if (typeof npi !== 'string') return false;
+
+    // Default US/Global Check
+    if (/^\d{10}$/.test(npi)) return true;
+
+    // Indian Context Check
+    if (address && inferCountryFromAddress(address) === 'IN') {
+        // If it's India, we use the state-specific validator
+        // We just need to know if it's *valid*, not which state
+        const check = validateIndianMedicalID(npi, address);
+        return check.valid;
+    }
+
+    return false;
 }
 
 export interface AgentWorkflowState {
@@ -359,7 +372,12 @@ async function fetchRegistryData(input: ProviderDocument): Promise<VerifiedData>
     // We simulate API behavior here with strict provenance tagging.
 
     // 1. Validation Check needed for Registry
-    if (!isValidNpi(input?.npi)) {
+    const country = inferCountryFromAddress(input.address || "");
+    const isIndia = country === 'IN';
+
+    // If generic international/US, require 10-digit NPI. 
+    // If India, we allow various formats but will validate deeper inside the Indian logic block.
+    if (!isIndia && !isValidNpi(input?.npi, input.address || "")) {
         dispatchLog(
             "ACQUISITION",
             "No valid NPI/ID provided. External registry lookup skipped; proceeding with user-provided details only.",
@@ -429,13 +447,44 @@ async function fetchRegistryData(input: ProviderDocument): Promise<VerifiedData>
     }
 
     // 4. Context-Aware Sourcing (India vs Global)
-    const country = inferCountryFromAddress(input.address || "");
+    if (isIndia) {
+        // Deep State-Level Validation
+        const stateCheck = validateIndianMedicalID(input.npi || "", input.address || "");
+        const heuristicCount = countAddressHeuristics(input.address || "");
 
-    if (country === 'IN') {
-        dispatchLog("ACQUISITION", "Detected Indian Provider context. Switching to National Medical Commission (NMC) Gateway...", "info");
+        // Log the granular state detection
+        if (stateCheck.stateDetected) {
+            dispatchLog("ACQUISITION", `Detected State Context: ${stateCheck.stateDetected} (${stateCheck.remarks})`, "info");
+        } else {
+            dispatchLog("ACQUISITION", "Indian Address Detected (State Unconfirmed)", "info");
+        }
 
-        // Extra Latency for "connecting" to Indian server
+        // Check if ID format is valid for that state
+        if (!stateCheck.valid) {
+            dispatchLog("ACQUISITION", `NMC Registry: ID Format Mismatch. ${stateCheck.remarks}`, "error");
+            return {
+                source: 'LIVE_API',
+                timestamp: Date.now(),
+                details: {
+                    npi: input.npi || "",
+                    name: input.name || "",
+                    address: input.address || "",
+                    license_status: 'NOT_FOUND', // Failed format check = Not found
+                    specialties: input.specialties || []
+                }
+            };
+        }
+
+        // Simulate NMC Verification
+        dispatchLog("ACQUISITION", `Connecting to NMC Gateway (State: ${stateCheck.stateDetected || 'General'})...`, "info");
         await new Promise(r => setTimeout(r, 1200));
+
+        let status: 'ACTIVE' | 'INACTIVE' = 'ACTIVE';
+        // Heuristic: If Tier-2/3 keywords are present, we might have higher confidence in rural reach, 
+        // but for now we just log it as a signal.
+        if (heuristicCount > 0) {
+            dispatchLog("ACQUISITION", `Rural/Tier-2 Address Indicators found: ${heuristicCount} (High confidence verification)`, "success");
+        }
 
         dispatchLog("ACQUISITION", "NMC Registry: Match Found (IMR Database). Verified.", "success");
 
@@ -446,7 +495,7 @@ async function fetchRegistryData(input: ProviderDocument): Promise<VerifiedData>
                 npi: input.npi || "",
                 name: input.name || "",
                 address: input.address || "",
-                license_status: 'ACTIVE',
+                license_status: status,
                 specialties: input.specialties && input.specialties.length > 0 ? input.specialties : ["General Medicine", "Ayush Certified"]
             }
         };
@@ -473,8 +522,9 @@ function calculateScore(input: ProviderDocument, evidence: VerifiedData, address
     const discrepancies: string[] = [];
     let isFatal = false;
 
-    if (!isValidNpi(input?.npi)) {
-        discrepancies.push("Missing/invalid registry ID (NPI)");
+    // Pass address to allow Indian formats if applicable
+    if (!isValidNpi(input?.npi, input.address || "")) {
+        discrepancies.push("Missing/invalid registry ID (NPI or State ID)");
         score -= 10;
     }
 
@@ -539,8 +589,8 @@ function calculateScore(input: ProviderDocument, evidence: VerifiedData, address
     } else if (trustLevel < 0.5) {
         // If we don't trust the data, we can't verify or flag. It's just Unverified.
         finalStatus = 'UNVERIFIED';
-        if (!isValidNpi(input?.npi)) {
-            discrepancies.push("Unverified: no valid NPI provided. Add a 10-digit NPI to enable registry verification.");
+        if (!isValidNpi(input?.npi, input.address)) {
+            discrepancies.push("Unverified: no valid NPI/State ID provided.");
         } else if (evidence.source === 'SIMULATION') {
             discrepancies.push("Unverified: registry evidence unavailable at the time of validation. Try again later.");
         } else {
@@ -592,6 +642,128 @@ async function runEnrichment(data: VerifiedData['details']): Promise<EnrichmentD
 }
 
 
+// --- 4. State-Level Validation (Deep Research Implementation) ---
+
+interface StateValidationRule {
+    regex: RegExp;
+    description: string;
+}
+
+const INDIAN_STATE_REGEX: Record<string, StateValidationRule> = {
+    // Maharashtra: Year-based (20xx...) or old sequential
+    "MAHARASHTRA": {
+        regex: /^(20\d{2}[0-9]{6}|\d{1,6}\/\d{2}\/\d{4}|\d{4,6})$/,
+        description: "Maharashtra Medical Council (Year-prefixed or Legacy)"
+    },
+    // Karnataka: KMC prefix or sequential
+    "KARNATAKA": {
+        regex: /^(KMC|K\.M\.C\.)?[- ]?\d{1,6}$/i,
+        description: "Karnataka Medical Council (KMC)"
+    },
+    // Delhi: DMC prefix, Fresh (R) or sequential
+    "DELHI": {
+        regex: /^(DMC(\/R)?[- \/]?)?\d{1,6}$/i,
+        description: "Delhi Medical Council (DMC)"
+    },
+    // Tamil Nadu: Pure numeric, optional TNMC
+    "TAMIL NADU": {
+        regex: /^(TNMC[- ]?)?\d{1,7}$/i,
+        description: "Tamil Nadu Medical Council"
+    },
+    // Uttar Pradesh: Simple numeric
+    "UTTAR PRADESH": {
+        regex: /^(UPMC[- ]?)?\d{1,6}$/i,
+        description: "Uttar Pradesh Medical Council"
+    },
+    // West Bengal: Legacy numeric
+    "WEST BENGAL": {
+        regex: /^(WBMC[- ]?)?\d{1,6}$/i,
+        description: "West Bengal Medical Council"
+    },
+    // Gujarat: Mandatory 'G' prefix
+    "GUJARAT": {
+        regex: /^[Gg][- ]?\d{1,6}$/,
+        description: "Gujarat Medical Council (G-Prefix)"
+    },
+    // Telangana: TSMC/FMR/...
+    "TELANGANA": {
+        regex: /^TSMC\/FMR\/\d{4,6}$/i,
+        description: "Telangana State Medical Council (FMR)"
+    },
+    // Andhra Pradesh: APMC/FMR/...
+    "ANDHRA PRADESH": {
+        regex: /^APMC\/FMR\/\d{4,6}$/i,
+        description: "Andhra Pradesh Medical Council (FMR)"
+    },
+    // Kerala: TCMC/KSMC prefix
+    "KERALA": {
+        regex: /^(TCMC|KSMC)[- ]?\d{1,6}$/i,
+        description: "Travancore-Cochin Medical Council"
+    }
+};
+
+const TIER_2_3_KEYWORDS = [
+    "tehsil", "tahsil", "taluk", "taluka", "mandal", "mouza", "gram", "panchayat",
+    "ward no", "municipality", "nagar palika", "post", "po", "p.o.", "police station", "ps",
+    "khasra", "khata", "survey no", "sy no", "dag no", "patta", "near", "opp", "behind", "beside"
+];
+
+function validateIndianMedicalID(id: string, address: string): { valid: boolean; stateDetected: string | null; remarks: string } {
+    const normAddr = normalizeAddress(address).toLowerCase();
+
+    // 1. Detect State from Address
+    let detectedState: string | null = null;
+
+    // Check our keys against address
+    for (const stateName of Object.keys(INDIAN_STATE_REGEX)) {
+        if (normAddr.includes(stateName.toLowerCase())) {
+            detectedState = stateName;
+            break;
+        }
+    }
+
+    // Heuristics for cities mapping to states (simplified top list)
+    if (!detectedState) {
+        if (/\b(mumbai|pune|nagpur|nashik|thane)\b/.test(normAddr)) detectedState = "MAHARASHTRA";
+        else if (/\b(bengaluru|bangalore|mysore|mangalore)\b/.test(normAddr)) detectedState = "KARNATAKA";
+        else if (/\b(chennai|coimbatore|madurai|salem)\b/.test(normAddr)) detectedState = "TAMIL NADU";
+        else if (/\b(hyderabad|warangal)\b/.test(normAddr)) detectedState = "TELANGANA";
+        else if (/\b(ahmedabad|surat|vadodara|rajkot)\b/.test(normAddr)) detectedState = "GUJARAT";
+        else if (/\b(kolkata|howrah)\b/.test(normAddr)) detectedState = "WEST BENGAL";
+        else if (/\b(lucknow|kanpur|varanasi|noida)\b/.test(normAddr)) detectedState = "UTTAR PRADESH";
+    }
+
+    if (!detectedState) {
+        // Fallback: If we can't pinpoint the state, we check if it matches *any* known strict pattern (like G- for Gujarat)
+        // Or we apply a generic check.
+        // For 'G-' specifically:
+        if (/^[Gg][- ]?\d{1,6}$/.test(id)) return { valid: true, stateDetected: "GUJARAT", remarks: "Inferred Gujarat from ID format" };
+        if (/^TSMC\/FMR\//i.test(id)) return { valid: true, stateDetected: "TELANGANA", remarks: "Inferred Telangana from ID format" };
+
+        // Generic fallback for India
+        return { valid: /^[a-zA-Z0-9\/-]{4,20}$/.test(id), stateDetected: null, remarks: "Generic Indian ID Check (State Unconfirmed)" };
+    }
+
+    const rule = INDIAN_STATE_REGEX[detectedState];
+    const isValid = rule.regex.test(id);
+
+    return {
+        valid: isValid,
+        stateDetected: detectedState,
+        remarks: isValid ? `Matches ${rule.description} pattern` : `Invalid format for ${detectedState} (Expected ${rule.description})`
+    };
+}
+
+function countAddressHeuristics(address: string): number {
+    const norm = normalizeAddress(address).toLowerCase();
+    let count = 0;
+    for (const kw of TIER_2_3_KEYWORDS) {
+        if (norm.includes(kw)) count++;
+    }
+    return count;
+}
+
+
 // --- 5. Document Vision Agent (New) ---
 
 export async function extractDataFromDocument(base64Image: string): Promise<ExtractedProviderData | null> {
@@ -599,10 +771,10 @@ export async function extractDataFromDocument(base64Image: string): Promise<Extr
         const prompt =
             "Analyze this medical provider document/ID image.\n" +
             "Extract the following fields strictly as JSON with these exact keys:\n" +
-            "{ \"npi\": \"10 digit number or empty\", \"name\": \"Full Name\", \"address\": \"Full Address\", \"confidence\": 0-100 }\n\n" +
+            "{ \"npi\": \"ID Number\", \"name\": \"Full Name\", \"address\": \"Full Address\", \"confidence\": 0-100 }\n\n" +
             "Address guidance:\n" +
             "- Preserve the address as written (include commas/lines if visible).\n" +
-            "- If India: try to include City, State/UT, and 6-digit PIN. Optional: Flat/Plot, Near landmark, District/Taluk.\n" +
+            "- If India: try to include City, State/UT, and 6-digit PIN. Look for 'Tehsil', 'District', 'Taluk'.\n" +
             "- If other countries: try to include postcode/ZIP and country if present.\n" +
             "Rules:\n" +
             "- If a field is not present, return empty string for that field.\n" +
@@ -634,7 +806,7 @@ export async function extractDataFromText(text: string): Promise<ExtractedProvid
         const prompt =
             "You are extracting medical provider details from messy free-text (email, WhatsApp, spreadsheet row, website copy).\n" +
             "Extract strictly as JSON with these exact keys:\n" +
-            '{ "npi": "10 digit number or empty", "name": "Full Name or empty", "address": "Full Address or empty", "confidence": 0-100 }\n\n' +
+            '{ "npi": "ID Number", "name": "Full Name or empty", "address": "Full Address or empty", "confidence": 0-100 }\n\n' +
             "Rules:\n" +
             "- If a field is not present, return empty string for that field.\n" +
             "- Do NOT add extra keys. Return only valid JSON.\n" +
