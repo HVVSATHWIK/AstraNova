@@ -23,12 +23,20 @@ const firebaseConfig = {
     measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-console.log("Firebase Config Check:", {
+console.log("Firebase Config Check:", JSON.stringify({
     apiKeyPresent: !!firebaseConfig.apiKey,
     authDomainPresent: !!firebaseConfig.authDomain,
     projectIdPresent: !!firebaseConfig.projectId,
-    apiKeyLength: firebaseConfig.apiKey ? firebaseConfig.apiKey.length : 0
-});
+    apiKeyLength: firebaseConfig.apiKey ? firebaseConfig.apiKey.length : 0,
+    authDomainValue: firebaseConfig.authDomain // Safe to log domain, it's public info usually
+}, null, 2));
+
+if (!firebaseConfig.apiKey) {
+    console.error("CRITICAL ERROR: Firebase API Key is missing. Check VITE_FIREBASE_API_TOKEN in Vercel.");
+}
+if (!firebaseConfig.authDomain) {
+    console.error("CRITICAL ERROR: Firebase Auth Domain is missing. Check VITE_FIREBASE_A_DOMAIN in Vercel.");
+}
 
 // 1. Initialize App safely
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
