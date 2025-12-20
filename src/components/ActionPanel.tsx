@@ -366,7 +366,6 @@ export function ActionPanel() {
                     title="Paste Text"
                 >
                     <Clipboard className="h-4 w-4" />
-                    <span className="absolute top-2 right-3 h-1.5 w-1.5 rounded-full bg-indigo-300"></span>
                     {activeTab === 'paste' && <div className="absolute -bottom-8 px-2 py-1 bg-gray-900 text-white text-[10px] rounded opacity-0 group-hover/btn:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">Paste</div>}
                 </button>
                 <button
