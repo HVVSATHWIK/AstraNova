@@ -2,7 +2,7 @@ import { useState } from "react";
 import { collection, addDoc } from "firebase/firestore";
 import { db, auth } from "../lib/firebase";
 import { runAgentWorkflow, extractDataFromDocument, extractDataFromText } from "../lib/agentSystem";
-import { UserPlus, Sparkles, Database, FileText, Upload, Scan, FileSpreadsheet } from "lucide-react";
+import { UserPlus, Sparkles, Database, FileText, Scan, FileSpreadsheet } from "lucide-react";
 import clsx from "clsx";
 
 type CsvProviderRow = {
@@ -635,7 +635,7 @@ export function ActionPanel() {
                                         <div className="absolute inset-0 border-4 border-indigo-500/30 rounded-lg"></div>
                                         <div className="absolute left-0 top-0 w-full h-1 bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,1)] animate-[scan_2s_ease-in-out_infinite]"></div>
                                     </div>
-                                    <p className="mt-6 text-xs font-bold text-indigo-400 animate-pulse tracking-wider">ANALYZING...</p>
+                                    <p className="mt-6 text-xs font-bold text-indigo-400 animate-pulse tracking-wider">{scanStatus || "ANALYZING..."}</p>
                                 </div>
                             )}
                         </div>
