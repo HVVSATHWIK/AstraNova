@@ -15,6 +15,8 @@ export function LoginPage() {
         setLoading(true);
         setError(null);
         try {
+            console.log("Attempting Google Login", { auth, googleProvider });
+            if (!auth) throw new Error("Firebase Auth instance is missing");
             await signInWithPopup(auth, googleProvider);
         } catch (err: unknown) {
             console.error("Google Login Error:", err);

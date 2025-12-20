@@ -74,9 +74,6 @@ try {
     dbInstance = initializeFirestore(app, {
         localCache: memoryLocalCache()
     });
-    dbInstance = initializeFirestore(app, {
-        localCache: memoryLocalCache()
-    });
 } catch (error: unknown) {
     const err = error as { code?: string };
     if (err.code === 'failed-precondition') {
