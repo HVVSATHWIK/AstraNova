@@ -35,7 +35,7 @@ if (!firebaseConfig.authDomain) {
 }
 
 // 1. Initialize App safely
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // 2. Initialize Auth with extreme robustness for Incognito/Restricted modes
 // 2. Initialize Auth with extreme robustness for Incognito/Restricted modes

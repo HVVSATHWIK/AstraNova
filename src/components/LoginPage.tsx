@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { auth, googleProvider } from "../lib/firebase";
+import { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth, GoogleAuthProvider } from "firebase/auth";
+import { app } from "../lib/firebase"; // Import app instead of auth instance
 import clsx from "clsx";
-import { LogIn, Key, Mail, CheckCircle2, ShieldCheck, Activity } from "lucide-react";
+import { LogIn, Key, Mail, CheckCircle2, ShieldCheck, Activity, UserPlus } from "lucide-react";
 
 export function LoginPage() {
     const [email, setEmail] = useState("");
@@ -11,13 +11,16 @@ export function LoginPage() {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
+    // Initialize Auth locally to ensure SDK consistency
+    const auth = getAuth(app);
+
     const handleGoogleLogin = async () => {
         setLoading(true);
         setError(null);
         try {
-            console.log("Attempting Google Login", { auth, googleProvider });
-            if (!auth) throw new Error("Firebase Auth instance is missing");
-            await signInWithPopup(auth, googleProvider);
+            const provider = new GoogleAuthProvider();
+            console.log("Attempting Google Login (Local Init)", { authConfig: auth.config, providerId: provider.providerId });
+            await signInWithPopup(auth, provider);
         } catch (err: unknown) {
             console.error("Google Login Error:", err);
             const msg = err instanceof Error ? err.message : "Failed to sign in with Google";
@@ -177,5 +180,4 @@ export function LoginPage() {
     );
 }
 
-// Helper icon
-import { UserPlus } from "lucide-react";
+
