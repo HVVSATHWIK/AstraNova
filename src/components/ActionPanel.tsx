@@ -134,7 +134,7 @@ const DEMO_PROVIDERS = [
 ];
 
 export function ActionPanel() {
-    const [activeTab, setActiveTab] = useState<'form' | 'upload'>('form');
+    const [activeTab, setActiveTab] = useState<'form' | 'paste' | 'csv' | 'upload'>('form');
     const [npi, setNpi] = useState("");
     const [name, setName] = useState("");
     const [address, setAddress] = useState("");
@@ -158,6 +158,7 @@ export function ActionPanel() {
         setName(random.name);
         setAddress(random.address);
         setInputSource("DEMO");
+        setActiveTab('form'); // Switch to form to see filled data
     };
 
     // New: Handle Document Upload
@@ -167,7 +168,7 @@ export function ActionPanel() {
 
         const isCsv = file.type === "text/csv" || /\.csv$/i.test(file.name);
         if (isCsv) {
-            alert("This upload expects an image for Scan. To import a CSV dataset, use Manual → Import CSV.");
+            alert("This upload expects an image for Scan. To import a CSV dataset, use the CSV Import tab.");
             return;
         }
 
@@ -278,7 +279,8 @@ export function ActionPanel() {
             setName("");
             setAddress("");
             setScanStatus("");
-            setActiveTab('form'); // Switch back to view list effectively? No, stay here but clear.
+            setPasteText("");
+            setActiveTab('form'); // Switch back to form for feedback
         } catch (error) {
             console.error("Error adding provider:", error);
             alert("Failed to add provider.");
@@ -312,9 +314,16 @@ export function ActionPanel() {
 
             setPasteStatus(
                 extracted.confidence >= 70
-                    ? `Extraction complete (${extracted.confidence}% confidence). Review and submit.`
-                    : `Extraction needs review (${extracted.confidence}% confidence). Please confirm fields before submit.`
+                    ? `Extraction complete (${extracted.confidence}% confidence). Switching to form...`
+                    : `Extraction needs review (${extracted.confidence}% confidence). Switching to form...`
             );
+
+            // Short delay to read message then switch
+            setTimeout(() => {
+                setActiveTab('form');
+                setPasteStatus("");
+            }, 1000);
+
         } catch (e) {
             console.error("Paste extraction failed", e);
             setPasteStatus("Paste extraction failed.");
@@ -329,56 +338,204 @@ export function ActionPanel() {
 
             {/* Header */}
             <div className="mb-6 flex items-center justify-between relative z-10">
-                <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 shadow-inner">
                         <UserPlus className="h-5 w-5" />
                     </div>
-                    <h2 className="text-lg font-semibold text-gray-100">Add Provider</h2>
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-100">Add Provider</h2>
+                        <p className="text-xs text-gray-500 font-medium">Select an input method to begin</p>
+                    </div>
                 </div>
+                <button
+                    onClick={fillDemoData}
+                    className="text-[10px] font-medium text-indigo-300 hover:text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded border border-indigo-500/20 transition-colors flex items-center gap-1"
+                >
+                    <Database className="h-3 w-3" />
+                    Demo Fill
+                </button>
             </div>
 
-            {/* Tabs */}
-            <div className="flex p-1 bg-black/40 rounded-lg mb-6 relative z-10">
+            {/* Premium Tabs */}
+            <div className="grid grid-cols-4 gap-1 bg-black/40 p-1 rounded-lg mb-6 relative z-10">
                 <button
                     onClick={() => setActiveTab('form')}
-                    className={clsx("flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-2",
-                        activeTab === 'form' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white"
+                    className={clsx(
+                        "py-2 text-[11px] font-semibold rounded-md transition-all flex flex-col items-center justify-center gap-1",
+                        activeTab === 'form' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white hover:bg-white/5"
                     )}
                 >
-                    <FileText className="h-3 w-3" /> Manual
+                    <FileText className="h-4 w-4" />
+                    Manual
+                </button>
+                <button
+                    onClick={() => setActiveTab('paste')}
+                    className={clsx(
+                        "py-2 text-[11px] font-semibold rounded-md transition-all flex flex-col items-center justify-center gap-1",
+                        activeTab === 'paste' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white hover:bg-white/5"
+                    )}
+                >
+                    <FileText className="h-4 w-4" /> {/* Fallback icon if Clipboard not avail, using FileText representing Text */}
+                    Paste Text
+                </button>
+                <button
+                    onClick={() => setActiveTab('csv')}
+                    className={clsx(
+                        "py-2 text-[11px] font-semibold rounded-md transition-all flex flex-col items-center justify-center gap-1",
+                        activeTab === 'csv' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white hover:bg-white/5"
+                    )}
+                >
+                    <FileSpreadsheet className="h-4 w-4" />
+                    CSV Import
                 </button>
                 <button
                     onClick={() => setActiveTab('upload')}
-                    className={clsx("flex-1 py-1.5 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-2",
-                        activeTab === 'upload' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white"
+                    className={clsx(
+                        "py-2 text-[11px] font-semibold rounded-md transition-all flex flex-col items-center justify-center gap-1",
+                        activeTab === 'upload' ? "bg-indigo-600 text-white shadow-lg" : "text-gray-400 hover:text-white hover:bg-white/5"
                     )}
                 >
-                    <Scan className="h-3 w-3" /> Scan
+                    <Scan className="h-4 w-4" />
+                    Scan
                 </button>
             </div>
 
-            {/* Manual Form */}
-            {activeTab === 'form' && (
-                <form onSubmit={handleSubmit} className="space-y-5 relative z-10 animate-in fade-in slide-in-from-right-4 duration-300">
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                        <div className="flex items-start justify-between gap-4">
-                            <div className="space-y-0.5">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-semibold text-gray-200">Import dataset</span>
-                                    <span className="text-[10px] text-gray-500">(prefills this form)</span>
-                                </div>
-                                <a
-                                    href="/providers.csv"
-                                    download
-                                    className="text-[11px] text-indigo-300/80 hover:text-indigo-200 underline underline-offset-2"
-                                    title="Download sample providers.csv"
-                                >
-                                    Download sample providers.csv
-                                </a>
+            {/* TAB CONTENT AREA */}
+            <div className="relative z-10 min-h-[300px]">
+
+                {/* 1. MANUAL TAB */}
+                {activeTab === 'form' && (
+                    <form onSubmit={handleSubmit} className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label className="mb-1.5 block text-xs font-semibold text-gray-400 uppercase tracking-wider">Provider ID</label>
+                                <input
+                                    type="text"
+                                    value={npi}
+                                    onChange={(e) => { setNpi(e.target.value); setInputSource("MANUAL"); }}
+                                    placeholder="NPI (10 digits)"
+                                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1.5 block text-xs font-semibold text-gray-400 uppercase tracking-wider">Provider Name <span className="text-rose-500">*</span></label>
+                                <input
+                                    type="text"
+                                    value={name}
+                                    onChange={(e) => { setName(e.target.value); setInputSource("MANUAL"); }}
+                                    placeholder="e.g. Dr. Jane Doe"
+                                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
+                                />
                             </div>
                         </div>
 
-                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                            <label className="mb-1.5 block text-xs font-semibold text-gray-400 uppercase tracking-wider">Full Address <span className="text-rose-500">*</span></label>
+                            <textarea
+                                value={address}
+                                onChange={(e) => { setAddress(e.target.value); setInputSource("MANUAL"); }}
+                                placeholder="e.g. 2nd Floor, Aster Clinic, MG Road, Bengaluru, Karnataka 560001, India"
+                                rows={4}
+                                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors resize-none"
+                            />
+                            <p className="text-[10px] text-gray-500 mt-2">
+                                For best results, include <span className="text-gray-400">City</span>, <span className="text-gray-400">State</span>, and <span className="text-gray-400">PIN/Zip Code</span>.
+                            </p>
+                        </div>
+
+                        <div className="pt-2">
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className={clsx(
+                                    "flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 text-sm font-bold text-white transition-all hover:shadow-lg hover:shadow-indigo-500/25 active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
+                                )}
+                            >
+                                {loading ? (
+                                    <>
+                                        <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        Processing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Sparkles className="h-4 w-4" />
+                                        Validate & Add Provider
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </form>
+                )}
+
+                {/* 2. PASTE TAB */}
+                {activeTab === 'paste' && (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div className="p-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5">
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">
+                                    <FileText className="h-5 w-5" />
+                                </div>
+                                <div className="space-y-1">
+                                    <h3 className="text-sm font-bold text-gray-200">AI Text Extraction</h3>
+                                    <p className="text-xs text-gray-400 leading-relaxed">
+                                        Paste any unformatted text block (email signature, website snippet, or messy list).
+                                        Our AI will identify the name, NPI, and address automatically.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <textarea
+                                value={pasteText}
+                                onChange={(e) => setPasteText(e.target.value)}
+                                placeholder="Paste provider details here..."
+                                rows={8}
+                                className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-gray-300 placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors resize-none"
+                            />
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4">
+                            <p className="text-[10px] text-gray-500 flex-1">
+                                {pasteStatus || "Ready to extract."}
+                            </p>
+                            <button
+                                onClick={handlePasteExtract}
+                                disabled={pasteLoading || !pasteText.trim()}
+                                className={clsx(
+                                    "px-6 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                                    pasteLoading || !pasteText.trim()
+                                        ? "bg-white/5 text-gray-500 cursor-not-allowed"
+                                        : "bg-indigo-600 text-white hover:bg-indigo-500 shadow-md"
+                                )}
+                            >
+                                {pasteLoading ? "Analyzing..." : "Extract Fields"}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* 3. CSV TAB */}
+                {activeTab === 'csv' && (
+                    <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div className="flex items-center justify-between p-4 rounded-xl border border-white/10 bg-white/5">
+                            <div className="space-y-1">
+                                <h3 className="text-sm font-bold text-gray-200">Import Dataset</h3>
+                                <p className="text-xs text-gray-500">
+                                    Upload a CSV file to prefill the manual form.
+                                </p>
+                            </div>
+                            <a
+                                href="/providers.csv"
+                                download
+                                className="flex items-center gap-1.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-md text-indigo-300 transition-colors"
+                            >
+                                <FileSpreadsheet className="h-3 w-3" />
+                                Download Template
+                            </a>
+                        </div>
+
+                        <div className="relative group">
                             <input
                                 id="csv-upload"
                                 type="file"
@@ -388,33 +545,26 @@ export function ActionPanel() {
                             />
                             <label
                                 htmlFor="csv-upload"
-                                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[12px] font-semibold text-gray-200 hover:bg-white/5 transition-colors cursor-pointer"
+                                className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-xl bg-black/20 hover:bg-white/5 hover:border-indigo-500/50 transition-all cursor-pointer group-hover:shadow-[0_0_20px_rgba(99,102,241,0.1)]"
                             >
-                                <FileSpreadsheet className="h-4 w-4" />
-                                Choose CSV
+                                <div className="h-10 w-10 rounded-full bg-white/5 flex items-center justify-center text-gray-400 group-hover:text-indigo-400 group-hover:scale-110 transition-all mb-2">
+                                    <FileSpreadsheet className="h-5 w-5" />
+                                </div>
+                                <p className="text-xs font-semibold text-gray-300">Click to upload CSV</p>
                             </label>
-
-                            <button
-                                onClick={fillDemoData}
-                                type="button"
-                                className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[12px] font-semibold text-gray-200 hover:bg-white/5 transition-colors"
-                            >
-                                <Database className="h-4 w-4" />
-                                Demo Fill
-                            </button>
                         </div>
 
                         {csvError && (
-                            <div className="mt-3 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3">
-                                <p className="text-[11px] text-rose-200/80">{csvError}</p>
+                            <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-[11px] text-rose-300">
+                                {csvError}
                             </div>
                         )}
 
                         {csvProviders.length > 0 && (
-                            <div className="mt-3 rounded-lg border border-white/10 bg-black/30 p-3">
-                                <div className="flex items-center justify-between gap-3">
-                                    <label className="text-[11px] text-gray-300 font-semibold">Pick a row</label>
-                                    <div className="text-[10px] text-gray-500">{csvProviders.length} rows</div>
+                            <div className="space-y-2 animate-in slide-in-from-bottom-2">
+                                <div className="flex items-center justify-between text-xs text-gray-400 px-1">
+                                    <span>Select a row to process</span>
+                                    <span className="font-mono text-indigo-400">{csvProviders.length} records</span>
                                 </div>
                                 <select
                                     value={csvSelectedIndex}
@@ -423,193 +573,89 @@ export function ActionPanel() {
                                         setCsvSelectedIndex(idx);
                                         const selected = csvProviders[idx];
                                         if (!selected) return;
-                                        if (selected.npi) setNpi(selected.npi);
-                                        if (selected.name) setName(selected.name);
-                                        if (selected.address) setAddress(selected.address);
+                                        setNpi(selected.npi || "");
+                                        setName(selected.name || "");
+                                        setAddress(selected.address || "");
                                         setInputSource("CSV");
+                                        setActiveTab('form'); // Auto-switch to form
                                     }}
-                                    className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-gray-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2.5 text-xs text-gray-200 focus:border-indigo-500 focus:outline-none"
                                 >
-                                    <option value={-1}>Choose a provider…</option>
+                                    <option value={-1}>-- Choose a provider from CSV --</option>
                                     {csvProviders.map((p, idx) => (
                                         <option key={idx} value={idx}>
-                                            {(p.name || "(Unnamed)") + (p.npi ? ` — ${p.npi}` : "")}
+                                            {p.name || "(No Name)"} {p.npi ? `(${p.npi})` : ""}
                                         </option>
                                     ))}
                                 </select>
-                                <p className="mt-2 text-[10px] text-gray-500">
-                                    Prefills one row at a time. Review the fields, then click <span className="text-gray-300">Validate & Add</span>.
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* 4. SCAN TAB */}
+                {activeTab === 'upload' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div
+                            className={clsx(
+                                "border-2 border-dashed rounded-xl h-64 flex flex-col items-center justify-center text-center transition-all duration-300 cursor-pointer relative overflow-hidden",
+                                dragActive ? "border-indigo-500 bg-indigo-500/10" : "border-white/10 bg-black/20 hover:border-indigo-500/30 hover:bg-white/5",
+                                loading && "opacity-50 pointer-events-none"
+                            )}
+                            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                            onDragLeave={() => setDragActive(false)}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                setDragActive(false);
+                                handleFileUpload(e.dataTransfer.files);
+                            }}
+                        >
+                            <input
+                                type="file"
+                                id="file-upload"
+                                className="hidden"
+                                accept="image/*,application/pdf,.pdf"
+                                onChange={(e) => handleFileUpload(e.target.files)}
+                            />
+
+                            <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center w-full h-full justify-center z-10">
+                                <div className={clsx("h-16 w-16 rounded-full flex items-center justify-center mb-4 transition-transform duration-500", dragActive ? "scale-110 bg-indigo-500 text-white" : "bg-white/5 text-gray-400 group-hover:text-indigo-400")}>
+                                    <Scan className="h-8 w-8" />
+                                </div>
+                                <h3 className="text-sm font-bold text-gray-200 mb-1">Upload Document</h3>
+                                <p className="text-xs text-gray-500 max-w-[200px] leading-relaxed">
+                                    Drag & drop ID card, letterhead, or form
+                                </p>
+                            </label>
+
+                            {/* Scanning Animation Overlay */}
+                            {loading && (
+                                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center z-20">
+                                    <div className="h-24 w-24 relative">
+                                        <div className="absolute inset-0 border-4 border-indigo-500/30 rounded-lg"></div>
+                                        <div className="absolute left-0 top-0 w-full h-1 bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,1)] animate-[scan_2s_ease-in-out_infinite]"></div>
+                                    </div>
+                                    <p className="mt-6 text-xs font-bold text-indigo-400 animate-pulse tracking-wider">ANALYZING...</p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-4 p-3 bg-blue-500/5 border border-blue-500/10 rounded-lg flex gap-3">
+                            <div className="shrink-0 mt-0.5">
+                                <Sparkles className="h-4 w-4 text-blue-400" />
+                            </div>
+                            <div className="space-y-1">
+                                <h4 className="text-[11px] font-bold text-blue-300">Intelligent Extraction</h4>
+                                <p className="text-[10px] text-blue-200/60 leading-relaxed">
+                                    Supports images (JPG, PNG). For PDFs, please use a screenshot.
+                                    Our vision model automatically detects NPI, Name, and Address blocks.
                                 </p>
                             </div>
-                        )}
-                    </div>
-
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                        <p className="text-xs text-gray-200 font-semibold">Inputs you’ll see in real workflows</p>
-                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-gray-500 leading-relaxed">
-                            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                                <div className="text-[11px] text-gray-200 font-semibold">Manual</div>
-                                <div className="text-[11px]">Type or copy/paste from a website or message.</div>
-                            </div>
-                            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                                <div className="text-[11px] text-gray-200 font-semibold">Paste text</div>
-                                <div className="text-[11px]">Paste a messy note and extract fields.</div>
-                            </div>
-                            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                                <div className="text-[11px] text-gray-200 font-semibold">CSV</div>
-                                <div className="text-[11px]">Import a dataset and validate one row.</div>
-                            </div>
-                            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-                                <div className="text-[11px] text-gray-200 font-semibold">Scan</div>
-                                <div className="text-[11px]">Upload a clear photo/screenshot (PDF: screenshot/paste).</div>
-                            </div>
                         </div>
                     </div>
+                )}
 
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                            <label className="text-xs text-gray-200 font-semibold">Paste a message (optional)</label>
-                            <button
-                                type="button"
-                                disabled={pasteLoading || !pasteText.trim()}
-                                onClick={handlePasteExtract}
-                                className={clsx(
-                                    "text-[11px] font-semibold px-3 py-1.5 rounded-md transition-colors",
-                                    pasteLoading || !pasteText.trim()
-                                        ? "bg-white/5 text-gray-600"
-                                        : "bg-indigo-600 text-white hover:bg-indigo-700"
-                                )}
-                            >
-                                {pasteLoading ? "Extracting…" : "Extract"}
-                            </button>
-                        </div>
-                        <textarea
-                            value={pasteText}
-                            onChange={(e) => setPasteText(e.target.value)}
-                            placeholder="Example: Dr. Ananya Sharma, Apollo Clinic, MG Road, Bengaluru 560001. NPI 1487000001"
-                            rows={3}
-                            className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
-                        />
-                        {pasteStatus && (
-                            <p className="mt-2 text-[10px] text-gray-500">{pasteStatus}</p>
-                        )}
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label className="mb-1 block text-sm font-medium text-gray-400">Provider ID (NPI if available)</label>
-                            <input
-                                type="text"
-                                value={npi}
-                                onChange={(e) => { setNpi(e.target.value); setInputSource("MANUAL"); }}
-                                placeholder="Optional (US NPI: 10 digits)"
-                                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="mb-1 block text-sm font-medium text-gray-400">Provider Name</label>
-                            <input
-                                type="text"
-                                value={name}
-                                onChange={(e) => { setName(e.target.value); setInputSource("MANUAL"); }}
-                                placeholder="e.g. Dr. Jane Doe"
-                                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
-                            />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="mb-1 block text-sm font-medium text-gray-400">Address</label>
-                        <textarea
-                            value={address}
-                            onChange={(e) => { setAddress(e.target.value); setInputSource("MANUAL"); }}
-                            placeholder="e.g. 2nd Floor, Aster Clinic, MG Road, Bengaluru, Karnataka 560001, India"
-                            rows={3}
-                            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors"
-                        />
-                        <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">
-                            India tip: include <span className="text-gray-400">City, State, PIN</span>. Optional (if available): Flat/Plot, Near landmark, District/Taluk.
-                            <br />
-                            Global tip: include <span className="text-gray-400">postcode</span> and <span className="text-gray-400">country</span> when formats vary.
-                        </p>
-                    </div>
-
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className={clsx(
-                            "flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:bg-indigo-300"
-                        )}
-                    >
-                        {loading ? (
-                            "Processing..."
-                        ) : (
-                            <>
-                                <Sparkles className="h-4 w-4" />
-                                Validate & Add
-                            </>
-                        )}
-                    </button>
-                </form>
-            )}
-
-            {/* Upload Area */}
-            {activeTab === 'upload' && (
-                <div className="relative z-10 animate-in fade-in slide-in-from-left-4 duration-300">
-                    <div
-                        className={clsx(
-                            "border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition-all duration-300 cursor-pointer",
-                            dragActive ? "border-indigo-500 bg-indigo-500/10" : "border-white/10 hover:border-white/20 hover:bg-white/5",
-                            loading && "opacity-50 pointer-events-none"
-                        )}
-                        onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                        onDragLeave={() => setDragActive(false)}
-                        onDrop={(e) => {
-                            e.preventDefault();
-                            setDragActive(false);
-                            handleFileUpload(e.dataTransfer.files);
-                        }}
-                    >
-                        <input
-                            type="file"
-                            id="file-upload"
-                            className="hidden"
-                            accept="image/*,application/pdf,.pdf"
-                            onChange={(e) => handleFileUpload(e.target.files)}
-                        />
-
-                        <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center">
-                            <div className="h-12 w-12 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 mb-4">
-                                <Upload className="h-6 w-6" />
-                            </div>
-                            <h3 className="text-sm font-semibold text-gray-200 mb-1">Upload Provider ID / Form</h3>
-                            <p className="text-xs text-gray-500 mb-4">Drag & drop or click to browse</p>
-                            <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-1 rounded">Supports: PNG, JPG (PDF: use screenshot/paste)</span>
-                        </label>
-                    </div>
-
-                    {loading && (
-                        <div className="mt-4 text-center">
-                            <p className="text-xs text-indigo-400 animate-pulse font-medium">{scanStatus}</p>
-                            <div className="h-1 w-full bg-gray-800 rounded-full mt-2 overflow-hidden">
-                                <div className="h-full bg-indigo-500 w-1/2 animate-[shimmer_1s_infinite_linear]" />
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="mt-6 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                        <h4 className="flex items-center gap-2 text-xs font-bold text-blue-300 mb-1">
-                            <Scan className="h-3 w-3" /> AI Extraction Agent
-                        </h4>
-                        <p className="text-[10px] text-blue-200/70">
-                            Upload a clear photo/scan of a provider ID, letterhead, visiting card, or application form.
-                            The Vision Agent extracts <span className="text-blue-200">NPI (10 digits)</span>, <span className="text-blue-200">Name</span>, and <span className="text-blue-200">Address</span> (including PIN/postcode if present).
-                            If the output looks off, re-upload with a clearer address block, or paste the text / use Manual.
-                        </p>
-                    </div>
-                </div>
-            )}
+            </div>
         </div>
     );
 }
