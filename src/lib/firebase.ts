@@ -44,7 +44,7 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 // 2. Initialize Auth with extreme robustness for Incognito/Restricted modes
 // 2. Initialize Auth with extreme robustness for Incognito/Restricted modes
 // Simplified Auth Init for debugging
-authInstance = getAuth(app);
+const authInstance = getAuth(app);
 // Original complex logic commented out for now
 /*
 try {
