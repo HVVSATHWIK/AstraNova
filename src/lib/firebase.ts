@@ -43,7 +43,10 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // 2. Initialize Auth with extreme robustness for Incognito/Restricted modes
 // 2. Initialize Auth with extreme robustness for Incognito/Restricted modes
-let authInstance;
+// Simplified Auth Init for debugging
+authInstance = getAuth(app);
+// Original complex logic commented out for now
+/*
 try {
     // Try to initialize with custom persistence first
     authInstance = initializeAuth(app, {
@@ -64,6 +67,7 @@ try {
         }
     }
 }
+*/
 export const auth = authInstance;
 
 // 3. Initialize Firestore with safe defaults (Memory Cache to avoid Storage errors)
