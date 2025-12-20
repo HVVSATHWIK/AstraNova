@@ -169,11 +169,22 @@ function normalizeAddress(address: string): string {
 
 function inferCountryFromAddress(address: string): string | null {
     const a = (address || "").toLowerCase();
-    const hasIndiaPin = /(?:^|\D)\d{6}(?:\D|$)/.test(a);
-    if (hasIndiaPin || /\bindia\b/.test(a)) return "IN";
 
-    // Common Indian state hints (non-exhaustive; lightweight on purpose)
-    if (/\b(maharashtra|karnataka|tamil nadu|telangana|kerala|delhi|uttar pradesh|west bengal|gujarat|rajasthan|punjab|haryana|odisha|assam|bihar)\b/.test(a)) {
+    // 1. Explicit Country Check
+    if (/\bindia\b/.test(a) || /\bbarat\b/.test(a) || /\bhindustan\b/.test(a)) return "IN";
+
+    // 2. Strong PIN Code Signal (6 digits, boundary checked)
+    const hasIndiaPin = /(?:^|\D)[1-9]\d{5}(?:\D|$)/.test(a); // India PINs start with 1-9
+
+    // 3. Exhaustive State/UT matching for high confidence
+    // Includes all 28 States and 8 Union Territories
+    const indianStatesRegex = /\b(andhra pradesh|arunachal pradesh|assam|bihar|chhattisgarh|goa|gujarat|haryana|himachal pradesh|jharkhand|karnataka|kerala|madhya pradesh|maharashtra|manipur|meghalaya|mizoram|nagaland|odisha|punjab|rajasthan|sikkim|tamil nadu|telangana|tripura|uttar pradesh|uttarakhand|west bengal)\b/i;
+    const indianUTsRegex = /\b(andaman|nicobar|chandigarh|dadra|nagar haveli|daman|diu|delhi|jammu|kashmir|ladakh|lakshadweep|puducherry|pondicherry)\b/i;
+
+    // Major Indian Cities (Heuristic top list to catch variations missing state)
+    const indianCitiesRegex = /\b(mumbai|delhi|bengaluru|bangalore|hyderabad|ahmedabad|chennai|madras|kolkata|calcutta|surat|pune|jaipur|lucknow|kanpur|nagpur|indore|thane|bhopal|visakhapatnam|patna|vadodara|ghaziabad|ludhiana|agra|nashik|faridabad|meerut|rajkot|kalyan|dombivli|vasai|virar|varanasi|srinagar|aurangabad|dhanbad|amritsar|navi mumbai|allahabad|prayagraj|ranchi|howrah|coimbatore|jabalpur|gwalior|vijayawada|jodhpur|madurai|raipur|kota|guwahati|chandigarh|solapur|hubballi|dharwad|bareilly|moradabad|mysore|mysuru|gurgaon|gurugram|noida|aligarh|jalandhar|tiruchirappalli|bhubaneswar|salem|mira|bhayandar|warangal|thiruvananthapuram|bhiwandi|saharanpur|guntur|amravati|bikaner|noida|kochi|cochin|udaipur)\b/i;
+
+    if (hasIndiaPin || indianStatesRegex.test(a) || indianUTsRegex.test(a) || indianCitiesRegex.test(a)) {
         return "IN";
     }
 
