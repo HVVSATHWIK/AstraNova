@@ -23,6 +23,13 @@ const firebaseConfig = {
     measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
+console.log("Firebase Config Check:", {
+    apiKeyPresent: !!firebaseConfig.apiKey,
+    authDomainPresent: !!firebaseConfig.authDomain,
+    projectIdPresent: !!firebaseConfig.projectId,
+    apiKeyLength: firebaseConfig.apiKey ? firebaseConfig.apiKey.length : 0
+});
+
 // 1. Initialize App safely
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
